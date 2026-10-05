@@ -1,0 +1,14 @@
+# Dependencias para Streamlit Community Cloud (el archivo que busca por defecto) y para correr app.py en cualquier equipo.
+# El monitor, el radar y el bot en GitHub Actions usan requirements-nube.txt (sin streamlit ni plotly).
+yfinance>=1.0
+pandas>=2.2
+numpy>=1.26
+requests>=2.31
+PyYAML>=6.0
+python-dotenv>=1.0
+python-telegram-bot>=22.0
+vaderSentiment>=3.3
+pyarrow>=15
+lxml>=5.0
+streamlit>=1.50
+plotly>=5.20

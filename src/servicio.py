@@ -1,0 +1,744 @@
+"""Servicio: orquesta fuentes → motor → mensajes para el monitor, el radar y el bot. Con respaldos para que "algo salga mal" no deje ciego
+ni mudo al sistema: caché vencida, cadena de noticias, proxy sin noticias, cola de alertas pendientes y avisos de salud.
+
+NUNCA envía órdenes: sólo alertas y recomendaciones (trii no tiene API)."""
+from __future__ import annotations
+
+import datetime as dt
+import re
+import shutil
+import tempfile
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable
+
+from dotenv import load_dotenv
+
+from . import concurso as C
+from . import formato as F
+from .catalizadores import catalizadores, tickers_con_reporte
+from .config import ROOT, load_config
+from .construir import (DatosInsuficientes, ResultadoMotor, candidatos_banco, decidir, ejecutar_motor, evaluar_activo, guardar_resultado,
+                        mee_de)
+from .data_sources import FuentesDatos
+from .notify import enviar
+from .semaforo import AZUL, EMOJI, GRAVEDAD, NEGRO, ROJO, VERDE, titulares_puntuados
+from .sentimiento import crear_puntuador
+from .state import Estado, ErrorEstado, universo_permitido
+
+RESPALDO_FUENTE = {
+    "precios": "uso los últimos datos guardados; si no hay, no habrá alertas de color hasta que vuelvan. Si ves un movimiento fuerte, mira trii a mano.",
+    "noticias": "pruebo otras fuentes de noticias (Yahoo y Google). Si también fallan, sospecho de una mala noticia cuando hay mucho volumen y la acción abre muy abajo.",
+    "noticias_bvc": "sigo intentando cada 2 minutos y te aviso cuando vuelvan. Mientras tanto no recibirás avisos de noticias de la BVC; el semáforo de tu cartera sigue funcionando.",
+}
+
+
+@dataclass
+class Contexto:
+    cfg: dict[str, Any]
+    f: FuentesDatos
+    puntuador: Callable[[str], float]
+    motor: str
+    ahora: dt.datetime
+    dry: bool = False
+    estado_path: Path | None = None            # en dry-run apunta a una copia temporal: nunca se toca el state.json real
+    salida: Callable[[str], None] = print
+    enviados: list[str] = field(default_factory=list)
+
+
+def crear_contexto(dry: bool = False, utc_now: dt.datetime | None = None, cfg: dict[str, Any] | None = None) -> Contexto:
+    load_dotenv(ROOT / ".env")
+    cfg = cfg or load_config()
+    f = FuentesDatos(cfg)
+    puntuador, motor = crear_puntuador(cfg)
+    ruta = None
+    if dry:
+        tmp = Path(tempfile.mkdtemp()) / "state_dry.json"
+        real = ROOT / cfg["estado"]["archivo"]
+        if real.exists():
+            shutil.copy2(real, tmp)
+        ruta = tmp
+    return Contexto(cfg, f, puntuador, motor, C.ahora_bogota(cfg, utc_now), dry, ruta)
+
+
+def leer_estado(ctx: Contexto) -> Estado:
+    return Estado(ctx.cfg, ctx.estado_path)
+
+
+def transaccion(ctx: Contexto):
+    return Estado.transaccion(ctx.cfg, ctx.estado_path)
+
+
+# ------------------------------------------------------------------ envío con respaldo
+def enviar_o_encolar(ctx: Contexto, texto: str, botones: list[list[tuple[str, str]]] | None = None) -> bool:
+    """Envía por Telegram (con botones opcionales); si falla, guarda el mensaje para reintentarlo en la próxima corrida. En dry-run sólo lo imprime."""
+    ctx.enviados.append(texto)
+    if ctx.dry:
+        ctx.salida("─" * 60 + "\n" + F.plano(texto) + ("\n[" + "] [".join(t for fila in botones for t, _ in fila) + "]" if botones else "") + "\n" + "─" * 60)
+        return True
+    if (enviar(texto, ctx.cfg, botones=botones) if botones else enviar(texto, ctx.cfg)):
+        return True
+    with transaccion(ctx) as e:
+        e.agregar_pendiente(texto, ctx.ahora)
+    return False
+
+
+def enviar_pendientes(ctx: Contexto) -> int:
+    """Reintenta las alertas que no se pudieron enviar antes. Devuelve cuántas se entregaron."""
+    if ctx.dry:
+        return 0
+    with transaccion(ctx) as e:
+        pend = e.tomar_pendientes()
+    if not pend:
+        return 0
+    falladas, entregadas = [], 0
+    for p in pend:
+        if enviar(f"⏱ <i>(Aviso atrasado: no se pudo enviar el {p['cuando'][5:16].replace('T', ' a las ')})</i>\n{p['texto']}", ctx.cfg):
+            entregadas += 1
+        else:
+            falladas.append(p)
+    if falladas:
+        with transaccion(ctx) as e:
+            for p in falladas:
+                e.agregar_pendiente(p["texto"], dt.datetime.fromisoformat(p["cuando"]))
+    return entregadas
+
+
+# ------------------------------------------------------------------ monitor (cada 15 min en horario de bolsa)
+def correr_monitor(ctx: Contexto, forzar: bool = False, evaluar: Callable = evaluar_activo, banco: Callable = candidatos_banco,
+                   mee: Callable = mee_de) -> list[str]:
+    """Calcula el semáforo de mi activo (y del banco) y avisa SÓLO si cambia el color. Devuelve los mensajes generados."""
+    cfg, ahora, f = ctx.cfg, ctx.ahora, ctx.f
+    mon = cfg["monitor"]
+    enviar_pendientes(ctx)
+    if not forzar and not C.mercado_abierto(ahora, cfg):
+        ctx.salida(f"[{ahora:%H:%M}] mercado cerrado para trii: nada que hacer (usa --forzar para probar).")
+        return []
+    est = leer_estado(ctx)
+    mensajes: list[str] = []
+    salud: list[tuple[str, bool]] = []
+    try:
+        res, ent, _ = evaluar(f, est.activo, ahora, cfg, est, ctx.puntuador, ctx.motor)
+        salud.append(("precios", True))
+    except (DatosInsuficientes, Exception) as ex:                                      # noqa: BLE001 — cualquier fallo de datos se cuenta, no se oculta
+        salud.append(("precios", False))
+        ctx.salida(f"[{ahora:%H:%M}] sin datos de precios de {est.activo}: {type(ex).__name__}: {ex}")
+        res = ent = None
+    if res is not None:
+        salud.append(("noticias", not res.sin_noticias))
+    extras: dict[str, Any] = {}                                                        # el resto de tu cartera: sólo se vigila el color de cada acción
+    for tk in sorted(est.tenidos() - {est.activo}):
+        try:
+            extras[tk] = evaluar(f, tk, ahora, cfg, est, ctx.puntuador, ctx.motor)[0]
+        except Exception as ex:                                                        # noqa: BLE001 — una acción sin datos no tumba a las demás
+            ctx.salida(f"[{ahora:%H:%M}] sin datos de {tk}: {type(ex).__name__}")
+    cands = []
+    if res is not None and mon["alertar_banco"]:
+        try:
+            cands = banco(f, cfg, ahora, est.activo, ent.cierres, ctx.puntuador, ctx.motor)
+        except Exception as ex:                                                        # noqa: BLE001 — el banco es secundario: no tumba el monitor
+            ctx.salida(f"[{ahora:%H:%M}] no se pudo calcular el banco: {type(ex).__name__}")
+
+    with transaccion(ctx) as e:
+        for nombre, ok in salud:
+            ev = e.registrar_fuente(nombre, ok, ahora, mon["fallos_para_avisar"] if nombre == "precios" else 2, mon["aviso_salud_cada_min"])
+            if ev:
+                mensajes.append(F.msg_salud(nombre, ev, ahora, RESPALDO_FUENTE[nombre], dict(f.proveedores_estado) if nombre == "noticias" else None))
+        dec_color = None
+        if res is not None:
+            prev = e.color_previo(res.ticker)
+            guardar_resultado(e, res, ahora, avisado=False)
+            cambia = (prev is None and res.color not in (VERDE, AZUL)) or (prev is not None and prev != res.color)
+            if cambia and (prev is None or GRAVEDAD[res.color] > GRAVEDAD[prev] or e.puede_alertar(res.ticker, ahora, mon["enfriamiento_min"])):
+                m, dec = None, None
+                if GRAVEDAD[res.color] >= GRAVEDAD["AMARILLO"]:                       # sólo vale la pena calcular la decisión si hay algo que decidir
+                    r = decidir(f, e, res, ent, cands, ahora, cfg)
+                    m, dec = r.mee, r.decision
+                    dec_color = dec
+                mensajes.append(F.msg_alerta_color(res, prev, ahora, m, dec, ctx.f.traducir, C.hora_orden_manana(C.proxima_sesion(ahora, cfg) or ahora.date(), cfg),
+                                                   est.activo))
+                guardar_resultado(e, res, ahora, avisado=True)
+            mensajes += _alertas_banco(e, cands, ahora, cfg)
+        for tk, rx in extras.items():                                                      # otras acciones de tu cartera: aviso de color (sin decisión: la regla trabaja con la principal)
+            prev_x = e.color_previo(tk)
+            guardar_resultado(e, rx, ahora, avisado=False)
+            cambia_x = (prev_x is None and rx.color not in (VERDE, AZUL)) or (prev_x is not None and prev_x != rx.color)
+            if cambia_x and (prev_x is None or GRAVEDAD[rx.color] > GRAVEDAD[prev_x] or e.puede_alertar(tk, ahora, mon["enfriamiento_min"])):
+                mensajes.append(F.msg_alerta_color(rx, prev_x, ahora, None, None, f.traducir, "", tk))
+                guardar_resultado(e, rx, ahora, avisado=True)
+        if res is not None:
+            if mon.get('eventos', {}).get('activo'):
+                mensajes += _eventos(ctx, e, res, ent, cands, ahora, dec_color)
+    for m in mensajes:
+        enviar_o_encolar(ctx, m)
+    if not mensajes:
+        ctx.salida(f"[{ahora:%H:%M}] {est.activo}: " + (f"{res.color} sin cambios" if res else "sin datos") + " — sin alertas.")
+    return mensajes
+
+
+def _alertas_banco(e: Estado, cands: list, ahora: dt.datetime, cfg: dict[str, Any]) -> list[str]:
+    """Avisa si un candidato del banco (el top 7 anterior o actual) entra o sale de ROJO/NEGRO. Guarda los colores de todos los candidatos."""
+    if not cands:
+        return []
+    from .relevo import construir_banco
+    mios = e.tenidos()                                                                 # lo que ya tienes no es un "relevo": se vigila aparte (extras)
+    top_actual = [x.c.ticker for x in construir_banco(cands, e.activo, cfg, set(mios))]
+    vigilados = set(top_actual) | set(e.d.get("banco_top", []))
+    graves = (ROJO, NEGRO)
+    msgs = []
+    for c in cands:
+        if c.ticker in mios:
+            continue
+        prev = e.color_previo(c.ticker)
+        if c.ticker in vigilados and prev is not None and prev != c.color and (prev in graves or c.color in graves):
+            msgs.append(F.msg_relevo_color(c.ticker, prev, c.color, graves))
+        e.set_semaforo(c.ticker, c.color, ahora)
+    e.d["banco_top"] = top_actual
+    return msgs
+
+
+def _eventos(ctx: Contexto, e: Estado, res: Any, ent: Any, cands: list, ahora: dt.datetime, dec_color: Any) -> list[str]:
+    """Novedades que se avisan solas (ver eventos.py). Cada tipo falla por separado sin tumbar al monitor; tope de avisos por corrida."""
+    from . import eventos as EV
+    cfg, f = ctx.cfg, ctx.f
+    conf = cfg["monitor"]["eventos"]
+    ev = e.d.setdefault("eventos", {})
+    hora = C.hora_orden_manana(C.proxima_sesion(ahora, cfg) or ahora.date(), cfg)
+    msgs: list[str] = []
+
+    def seguro(nombre: str, fn: Callable[[], None]) -> None:
+        try:
+            fn()
+        except Exception as ex:                                                          # noqa: BLE001 — una novedad que falla no tumba el monitor
+            ctx.salida(f"[{ahora:%H:%M}] no se pudo revisar «{nombre}»: {type(ex).__name__}")
+
+    def decision() -> None:
+        r = decidir(f, e, res, ent, cands, ahora, cfg)
+        tipo = EV.cambio_de_decision(ev, r.decision, ahora, cfg)
+        if tipo and dec_color is None:                                                   # si la alerta de color ya trajo la decisión, no se repite
+            msgs.append(F.msg_decision_cambio(tipo, r.decision, e.activo, hora))
+
+    def calendario() -> None:
+        try:
+            rep = f.reportes(e.activo)
+        except Exception:                                                                # noqa: BLE001
+            rep = None
+        for a in EV.avisos_calendario(ev, e.activo, rep, ahora, cfg):
+            msgs.append(F.msg_calendario(a))
+
+    def noticias() -> None:
+        n = f.noticias(e.activo, 2)
+        if n:
+            nuevas = EV.noticias_nuevas(ev, titulares_puntuados(n, cfg, ctx.puntuador, 60), ahora, cfg)
+            if nuevas:
+                msgs.append(F.msg_noticia_nueva(e.activo, nuevas, res, ahora, f.traducir))
+
+    if conf["decision"]["activo"] and cands and e.rent.get("mia") is not None and e.rent.get("umbral") is not None:
+        seguro("decisión", decision)
+    if conf["calendario"]["activo"]:
+        seguro("calendario", calendario)
+    if conf["noticias"]["activo"]:
+        seguro("noticias", noticias)
+    if EV.alza_fuerte(ev, res.z, ahora, cfg):
+        msgs.append(F.msg_alza(res, ahora))
+    return msgs[: conf["max_por_corrida"]]
+
+
+def alerta_base(ctx: Contexto) -> str | None:
+    """Aviso (en el radar nocturno) si cambió la comparación de base: otra acción superó a la tuya, o dejó de superarla."""
+    from . import eventos as EV
+    from .seleccion import ranking_base, veredicto
+    est = leer_estado(ctx)
+    filas = ranking_base(ctx.f, ctx.cfg, ctx.ahora, est.activo)
+    v, mejores = veredicto(filas, ctx.cfg)
+    with transaccion(ctx) as e:
+        tipo = EV.estado_base(e.d.setdefault("eventos", {}), v, mejores)
+    return F.msg_base_cambio(tipo, filas, mejores, est.activo, ctx.cfg) if tipo else None
+
+
+# ------------------------------------------------------------------ radar (19:30 de lunes a jueves)
+def generar_radar(ctx: Contexto, forzar: bool = False) -> str:
+    """Resumen nocturno completo. Es la medición oficial del cierre (la que decide NEGRO), por eso guarda el color y el episodio."""
+    cfg, ahora = ctx.cfg, ctx.ahora
+    est = leer_estado(ctx)
+    r = ejecutar_motor(ctx.f, est, cfg, ahora, ctx.puntuador, ctx.motor)
+    with transaccion(ctx) as e:
+        guardar_resultado(e, r.res, ahora, avisado=False)
+        e.registrar_fuente("precios", True, ahora, 3, 60)
+        e.registrar_fuente("noticias", not r.res.sin_noticias, ahora, 2, 60)
+    cats = catalizadores(ctx.f, cfg, ahora, tickers_con_reporte(cfg), cfg["radar"]["dias_catalizadores"])
+    return armar_radar(est, r, cats, cfg, ahora, ctx.f.traducir)
+
+
+def armar_radar(est: Estado, r: ResultadoMotor, cats: list[dict[str, Any]], cfg: dict[str, Any], ahora: dt.datetime,
+                traductor: F.Traductor | None = None) -> str:
+    """Resumen nocturno en 5 secciones numeradas, cada una con su explicación en palabras sencillas."""
+    c = r.corte
+    sem = C.semana_concurso(ahora.date(), cfg)
+    noche = ahora.date().isoformat() in cfg["radar"]["noches_decision"]
+    hora = C.hora_orden_manana(C.proxima_sesion(ahora, cfg) or ahora.date(), cfg)
+    L = [f"🌙 {F.b('RADAR DE LA NOCHE')}  {F.it(f'{F.fecha(ahora)} {ahora:%H:%M} (hora Bogotá)')}"]
+    if c:
+        top = f"pasa el top {c['top_pct']}%" if c.get("top_pct") else "final: gana el #1"
+        L.append(f"📍 {'Semana ' + str(sem) + ' de 5' if sem else 'Antes del concurso'} · próximo corte: {F.fecha(c['fecha'])} ({top}) · faltan {C.sesiones_restantes(ahora, cfg)} días de bolsa")
+        if C.corte_manana(ahora, cfg):
+            L.append(f"⚠️ {F.b('¡El corte es mañana!')} Hoy un ROJO se trata como NEGRO.")
+    L.append("🧭 Hoy es noche de decisión: mira la sección 2 y decide si cambias." if noche
+             else "🧭 Hoy no hay decisión programada; igual te muestro qué diría la regla.")
+    L += ["", F.b("1️⃣ Tu acción") + f" — {EMOJI[r.res.color]} {F.esc(r.res.ticker)}: {F.NOMBRE_COLOR[r.res.color]}", *F.cuerpo_semaforo(r.res, traductor)]
+    L += ["", F.b("2️⃣ ¿Te conviene cambiar?"), *([] if r.decision.codigo == "sin_ranking" else [F.linea_ranking(est.rent)]),
+          *F.bloque_decision(r.decision, r.activo, hora)[1:]]
+    L += ["", F.b("3️⃣ Mejores relevos"), F.msg_banco(r.banco, r.activo, r.mee, r.excluidos, top=5, titulo=False).split("\n", 1)[-1]
+          if r.banco else F.msg_banco(r.banco, r.activo, r.mee)]
+    destacados = {r.activo} | {e.c.ticker for e in r.banco[:5]}
+    L += ["", F.b("4️⃣ Qué viene"), F.msg_catalizadores(cats, cfg["radar"]["dias_catalizadores"], max_items=6, destacados=destacados).split("\n", 1)[-1]
+          if cats else F.msg_catalizadores(cats, cfg["radar"]["dias_catalizadores"])]
+    L += ["", F.b("5️⃣ Tus tareas de mañana"), F.recordatorio_actividad(est, cfg, ahora),
+          f"🔁 Cambios de acción usados: {est.cambios_usados()} de {cfg['estado']['max_cambios']}."]
+    ruido = ("sin cobertura", "ticks erróneos", "Traducción", "intradía")                 # fallos menores de acciones candidatas: no merecen alarma
+    relevantes = [x for x in r.avisos if not any(m in x for m in ruido)]
+    if relevantes:
+        L += ["", f"⚠️ {F.it('Algunas fuentes de datos fallaron hoy; el sistema usó su plan B. Más datos: /detalle')}"]
+    L.append(F.it("¿Dudas con los colores? /ayuda · ¿Quieres el detalle completo? /informe (archivo HTML)"))
+    return "\n".join(L)
+
+
+# ------------------------------------------------------------------ respuestas del bot
+def purgar_cache(ctx: Contexto) -> int:
+    n = 0
+    for p in ctx.f.cache.dir.glob("*"):
+        if p.name != "av_contador.json":
+            p.unlink(missing_ok=True)
+            n += 1
+    return n
+
+
+def resp_estado(ctx: Contexto) -> str:
+    est = leer_estado(ctx)
+    res = mee = None
+    try:
+        res, ent, _ = evaluar_activo(ctx.f, est.activo, ctx.ahora, ctx.cfg, est, ctx.puntuador, ctx.motor)
+        mee = mee_de(ctx.f, est.activo, res.sigma20, ctx.ahora, ctx.cfg)[0]
+    except Exception:                                                                  # noqa: BLE001 — el estado se muestra aunque fallen los datos
+        pass
+    sal = {k: bool(v.get("fallos", 0) == 0) for k, v in est.d["salud"].items()}
+    txt = F.msg_estado(est, ctx.cfg, ctx.ahora, res, mee, sal)
+    if est.d["cartera"]:
+        try:
+            txt += "\n\n" + _cartera_txt(ctx, est)
+        except Exception:                                                              # noqa: BLE001 — el estado se muestra aunque falle la valoración
+            txt += "\n\n💼 No pude valorar tu cartera ahora; /cartera lo intenta de nuevo."
+    if res is None:
+        txt += "\n⚠️ No pude calcular el semáforo ahora (datos no disponibles). Mira trii a mano si ves un movimiento fuerte."
+    if est.d["alertas_pendientes"]:
+        txt += f"\n⏱ Tengo {len(est.d['alertas_pendientes'])} avisos sin enviar; los reintento en la próxima revisión."
+    return txt
+
+
+def resp_semaforo(ctx: Contexto, ticker: str | None = None) -> str:
+    """Sin ticker: el semáforo de TODAS las acciones de tu cartera (la principal primero). Con ticker: el de esa acción."""
+    est = leer_estado(ctx)
+    if ticker:
+        lista = [resolver(ctx, ticker, est.tenidos())]
+    else:
+        otras = sorted(est.tenidos() - {est.activo})
+        lista = [est.activo] + otras
+    partes = []
+    for t in lista:
+        if t not in universo_permitido(ctx.cfg) and t != est.activo:
+            partes.append(f"❌ {F.esc(t)} no está permitida en el concurso (o está en la lista negra).")
+            continue
+        try:
+            res, _, _ = evaluar_activo(ctx.f, t, ctx.ahora, ctx.cfg, est, ctx.puntuador, ctx.motor, con_base_noticias=True)
+            partes.append(F.msg_semaforo(res, ctx.ahora, ctx.f.traducir))
+        except Exception as ex:                                                          # noqa: BLE001 — una acción sin datos no impide ver las demás
+            partes.append(f"⚠️ {F.b(F.esc(t))}: no pude calcular su semáforo ahora ({F.esc(type(ex).__name__)}). Prueba /actualizar.")
+    return "\n\n➖➖➖\n\n".join(partes)
+
+
+def resp_banco(ctx: Contexto) -> str:
+    est = leer_estado(ctx)
+    r = ejecutar_motor(ctx.f, est, ctx.cfg, ctx.ahora, ctx.puntuador, ctx.motor)
+    hora = C.hora_orden_manana(C.proxima_sesion(ctx.ahora, ctx.cfg) or ctx.ahora.date(), ctx.cfg)
+    return "\n".join([F.msg_banco(r.banco, r.activo, r.mee, r.excluidos), "", *F.bloque_decision(r.decision, r.activo, hora)])
+
+
+def resp_detalle(ctx: Contexto, ticker: str | None = None) -> str:
+    """Los números técnicos del semáforo de tu acción principal, o de la que indiques (/detalle META)."""
+    est = leer_estado(ctx)
+    t = resolver(ctx, ticker, est.tenidos()) if ticker else est.activo
+    if t not in universo_permitido(ctx.cfg) and t != est.activo:
+        return f"❌ {F.esc(t)} no está permitida en el concurso (o está en la lista negra)."
+    res, ent, _ = evaluar_activo(ctx.f, t, ctx.ahora, ctx.cfg, est, ctx.puntuador, ctx.motor)
+    mee, _, iv = mee_de(ctx.f, t, res.sigma20, ctx.ahora, ctx.cfg)
+    return F.msg_detalle(res, mee, iv, ctx.cfg)
+
+
+def solo_bvc(cfg: dict[str, Any]) -> bool:
+    return bool(cfg.get("modo", {}).get("solo_bvc"))
+
+
+def resolver(ctx: Contexto, texto: str, tenidos: set[str] | None = None) -> str:
+    """'argos', 'nuco', 'Bancolombia' → el ticker del sistema. Si no lo reconoce, devuelve el texto en mayúsculas (el aviso de 'no permitida' lo da quien llama)."""
+    from .entender import buscar_ticker
+    return buscar_ticker(texto, ctx.cfg, tenidos)[0] or texto.strip().upper()
+
+
+def senales_recientes(horas: float = 24, ahora: dt.datetime | None = None) -> list[dict[str, Any]]:
+    """Noticias de alto impacto que el vigía avisó en las últimas `horas`."""
+    from . import noticias_bvc as N
+    ahora = ahora or dt.datetime.now(dt.timezone.utc)
+    lim = (ahora.astimezone(dt.timezone.utc) - dt.timedelta(hours=horas)).isoformat(timespec="minutes")
+    return [x for x in N.Memoria().d["senales"] if x["ts"] >= lim]
+
+
+def resp_noticias(ctx: Contexto, ticker: str | None = None) -> str:
+    """Sin ticker: las noticias fuertes de la BVC de las últimas 24 horas (las que avisó el vigía). Con ticker: los titulares de esa acción."""
+    if not ticker:
+        return F.msg_noticias_bvc_recientes(senales_recientes(24, ctx.ahora), None, ctx.ahora)
+    est = leer_estado(ctx)
+    t = resolver(ctx, ticker, est.tenidos())
+    if t not in universo_permitido(ctx.cfg):
+        return f"❌ {F.esc(t)} no está permitida en el concurso (o está en la lista negra)."
+    if solo_bvc(ctx.cfg) and t not in ctx.cfg["universe"]["local"] and t not in est.tenidos():
+        return f"🇨🇴 Ahora trabajo sólo con acciones de la BVC. {F.esc(t)} es de EE. UU. y no la tienes en cartera. Prueba /noticias ECOPETROL."
+    n = ctx.f.noticias(t, 3)
+    return F.msg_noticias(t, n, titulares_puntuados(n or [], ctx.cfg, ctx.puntuador), ctx.cfg["bot"]["titulares_max"], ctx.f.traducir)
+
+
+def resp_catalizadores(ctx: Contexto) -> str:
+    cats = catalizadores(ctx.f, ctx.cfg, ctx.ahora, tickers_con_reporte(ctx.cfg), ctx.cfg["radar"]["dias_catalizadores"])
+    return F.msg_catalizadores(cats, ctx.cfg["radar"]["dias_catalizadores"])
+
+
+def resp_actualizar(ctx: Contexto) -> str:
+    n = purgar_cache(ctx)
+    est = leer_estado(ctx)
+    r = ejecutar_motor(ctx.f, est, ctx.cfg, ctx.ahora, ctx.puntuador, ctx.motor)
+    with transaccion(ctx) as e:
+        guardar_resultado(e, r.res, ctx.ahora, avisado=False)
+    hora = C.hora_orden_manana(C.proxima_sesion(ctx.ahora, ctx.cfg) or ctx.ahora.date(), ctx.cfg)
+    return "\n".join([f"🔄 {F.b('Datos actualizados')} {F.it(f'(borré {n} datos guardados y volví a consultar todo)')}", "",
+                      F.msg_estado(est, ctx.cfg, ctx.ahora, r.res, r.mee), "", *F.bloque_decision(r.decision, r.activo, hora), "",
+                      F.msg_banco(r.banco, r.activo, r.mee, r.excluidos, top=5, titulo=False)])
+
+
+def resp_base(ctx: Contexto) -> str:
+    from .seleccion import ranking_base, veredicto
+    est = leer_estado(ctx)
+    filas = ranking_base(ctx.f, ctx.cfg, ctx.ahora, est.activo)
+    v, mejores = veredicto(filas, ctx.cfg)
+    return F.msg_base(filas, v, mejores, est.activo, ctx.cfg)
+
+
+def generar_informe(ctx: Contexto) -> tuple[str, str]:
+    """(mensaje corto en HTML de Telegram, informe HTML completo). Sólo se llama cuando alguien lo pide en el bot: los avisos automáticos no lo adjuntan."""
+    from .informe_html import armar_informe
+    est = leer_estado(ctx)
+    r = ejecutar_motor(ctx.f, est, ctx.cfg, ctx.ahora, ctx.puntuador, ctx.motor)
+    try:
+        cats = catalizadores(ctx.f, ctx.cfg, ctx.ahora, tickers_con_reporte(ctx.cfg), ctx.cfg["radar"]["dias_catalizadores"])
+    except Exception:                                                                  # noqa: BLE001 — el informe sale aunque falle el calendario
+        cats = []
+    try:
+        n = ctx.f.noticias(est.activo, 3)
+        punt = titulares_puntuados(n, ctx.cfg, ctx.puntuador, 20) if n is not None else None
+    except Exception:                                                                  # noqa: BLE001
+        punt = None
+    try:
+        from .seleccion import ranking_base
+        brank = ranking_base(ctx.f, ctx.cfg, ctx.ahora, est.activo)
+    except Exception:                                                                  # noqa: BLE001
+        brank = None
+    hora = C.hora_orden_manana(C.proxima_sesion(ctx.ahora, ctx.cfg) or ctx.ahora.date(), ctx.cfg)
+    corto = "\n".join([F.msg_semaforo(r.res, ctx.ahora, ctx.f.traducir), "", *F.bloque_decision(r.decision, r.activo, hora), "",
+                       F.it("📎 Te mando también el informe completo (ábrelo con el navegador).")])
+    return corto, armar_informe(est, r, cats, punt, ctx.cfg, ctx.ahora, ctx.f.traducir, universo_permitido(ctx.cfg), brank)
+
+
+def informe_html(ctx: Contexto) -> str:
+    return generar_informe(ctx)[1]
+
+
+def numero(s: str) -> float:
+    """Acepta '6,5', '6.5', '+6,5', '-3', '6,5%'."""
+    t = s.strip().replace("%", "").replace(" ", "")
+    if "," in t and "." in t:                                                         # 1.234,5 → 1234.5
+        t = t.replace(".", "").replace(",", ".")
+    else:
+        t = t.replace(",", ".")
+    return float(t)
+
+
+def monto(s: str) -> float:
+    """Acepta '97000000', '97.000.000', '97M', '97,5M', '97mm'."""
+    t = s.strip().lower().replace("$", "").replace(" ", "")
+    mult = 1.0
+    for suf, m in (("mm", 1e6), ("m", 1e6), ("k", 1e3)):
+        if t.endswith(suf):
+            t, mult = t[: -len(suf)], m
+            break
+    if mult == 1.0:
+        t = t.replace(".", "").replace(",", "")
+        return float(t)
+    return numero(t) * mult
+
+
+def guardar_rank(ctx: Contexto, mia: float | None, objetivo: float | None, segundo: float | None = None) -> str:
+    """Guarda tu rentabilidad y/o la del corte. Lo que no digas se toma de lo último guardado ("voy 3,5" no obliga a repetir el corte)."""
+    rm = ctx.cfg["regla_maestra"]
+    try:
+        with transaccion(ctx) as e:
+            mia = e.rent.get("mia") if mia is None else mia
+            objetivo = e.rent.get("umbral") if objetivo is None else objetivo
+            if mia is None or objetivo is None:
+                falta = "tu rentabilidad" if mia is None else "la rentabilidad del corte"
+                ejemplo = "voy 3,5" if mia is None else "el corte está en 8"
+                return (f"{F.b('Cómo usar /rank')}\nMe falta {falta}. Escríbela así: {F.b(ejemplo)} — o las dos juntas: {F.b('/rank 6,5 11')} "
+                        "(\"voy +6,5% y para pasar el corte hay que tener +11%\").\nEn la semana 5 el segundo número es la rentabilidad del #1.")
+            e.actualizar_rank(mia, objetivo, ctx.ahora, segundo=segundo)
+            g = objetivo - mia + rm["margen_g_pp"]
+    except (ValueError, ErrorEstado) as ex:
+        return f"❌ No pude guardar el ranking: {F.esc(ex)}\nEjemplo: {F.b('/rank 6,5 11')}"
+    mult = (g + rm["costo_cambio_pp"]) / g if g > 0 else None
+    return F.msg_rank_guardado(mia, objetivo, g, mult, C.semana_final(ctx.ahora, ctx.cfg) and segundo is None and mia >= objetivo)
+
+
+def resp_rank(ctx: Contexto, args: list[str]) -> str:
+    """/rank 6,5 11 (mi rentabilidad y la del corte). Con un solo número actualiza tu rentabilidad y conserva el corte que ya habías dado."""
+    try:
+        vals = [numero(a) for a in args[:3]]
+    except ValueError as ex:
+        return f"❌ No pude guardar el ranking: {F.esc(ex)}\nEjemplo: {F.b('/rank 6,5 11')}"
+    return guardar_rank(ctx, vals[0] if vals else None, vals[1] if len(vals) > 1 else None, vals[2] if len(vals) > 2 else None)
+
+
+def resp_pos(ctx: Contexto, args: list[str]) -> str:
+    if len(args) < 3:
+        return (f"{F.b('Cómo usar /pos')}\nCuando cambies de acción, dime cuál compraste, cuánta plata y a qué precio. "
+                f"Ejemplo: {F.b('/pos META 95M 720,5')} (META, $95 millones, a 720,5).")
+    try:
+        t, m, p = args[0].upper(), monto(args[1]), numero(args[2])
+        with transaccion(ctx) as e:
+            res = e.registrar_cambio(t, m, p, ctx.ahora)
+            return (f"✅ {F.b(F.esc(res))}\n💼 Ahora tienes {F.b(t)}: {F.cop(m)} comprados a {F.n(p, 2)}.\n"
+                    f"🔁 Cambios de acción que te quedan: {e.cambios_restantes()}.")
+    except (ValueError, ErrorEstado) as ex:
+        return f"❌ {F.esc(ex)}\nEjemplo: {F.b('/pos META 95M 720,5')}"
+
+
+def _cartera_txt(ctx: Contexto, est: Estado, titulo: bool = True) -> str:
+    from . import cartera as CA
+    tasa = CA.trm(ctx.f, ctx.cfg)
+    filas = CA.valorar(ctx.f, est.d["cartera"], ctx.cfg, tasa)
+    colores = {t: est.color_previo(t) for t in est.tenidos()}
+    return F.msg_cartera(filas, CA.rent_total(filas), tasa, colores, titulo)
+
+
+def resp_cartera(ctx: Contexto) -> str:
+    return _cartera_txt(ctx, leer_estado(ctx))
+
+
+USO_COMPRA = ("{t}\nDímelo como te salga, por ejemplo:\n• {b1}\n• {b2}\n• {b3}\nSi no pones precio uso el de hoy. No importa si el precio va en pesos o en dólares, "
+              "ni si pones el total en vez del precio: lo detecto y te muestro lo que entendí.")
+
+
+def uso_compra() -> str:
+    return USO_COMPRA.format(t=F.b("Cómo usar /compra"), b1=F.b("compré 300 argos a 21500"), b2=F.b("compré 20 millones de ecopetrol"), b3=F.b("/compra TSLA 55 380,5"))
+
+
+def registrar_compra(ctx: Contexto, i: Any, confirmado: bool = False) -> str:
+    """Registra una compra ya entendida (`entender.Intencion`): resuelve precio en pesos/dólares o total-en-vez-de-precio contra la cotización de hoy,
+    y SIEMPRE devuelve lo que entendió. Si el precio queda muy lejos del de hoy y no cuadra con ninguna lectura, NO guarda y pregunta."""
+    from . import cartera as CA
+    from .entender import aclarar_compra
+    t = i.ticker
+    try:
+        perm = universo_permitido(ctx.cfg)
+        if t not in perm:
+            Estado(ctx.cfg, ctx.estado_path)._validar_titulo(t)                        # da el mensaje exacto (lista negra / no permitida)
+        try:
+            q = ctx.f.cotizacion(t)
+        except Exception:                                                              # noqa: BLE001
+            q = None
+        mon = CA.moneda(t, ctx.cfg)
+        tasa = CA.trm(ctx.f, ctx.cfg)
+        a = aclarar_compra(i, mon, q["precio"] if q else None, tasa)
+        if not a["ok"]:
+            if a["motivo"] == "sin_precio":
+                return f"❌ No pude obtener el precio de hoy de {F.esc(t)}. Dime el precio de tu compra: {F.b('compré ' + f'{i.cantidad or 10:g} ' + t.lower() + ' a PRECIO')}"
+            if a["motivo"] == "sin_trm":
+                return "❌ No pude obtener la TRM ahora. Agrega el valor total en pesos al final, por ejemplo: /compra META 8 720,5 23M"
+            return uso_compra()
+        if a["monto_cop"] is None:
+            return "❌ No pude obtener la TRM ahora. Agrega el valor total en pesos al final, por ejemplo: /compra META 8 720,5 23M"
+        simb = "US$ " if mon == "USD" else "$ "
+        if a["dudoso"] and not confirmado:
+            return (f"🤔 {F.b('Antes de guardar, confirma el precio')}\nMe dijiste {simb}{F.n(a['precio'], 2)} por acción de {F.esc(t)}, pero hoy cotiza cerca de {simb}{F.n(q['precio'], 2)}.\n"
+                    f"• Si está bien, repítelo y agrega la palabra {F.b('confirmo')}.\n• Si prefieres el precio de hoy, escribe: {F.b('compré ' + f'{a['cantidad']:g} ' + t.lower())}")
+        with transaccion(ctx) as e:
+            res = e.registrar_compra(t, a["cantidad"], a["precio"], ctx.ahora, a["monto_cop"])
+            act = ctx.cfg["concurso"]["actividad"]
+            ops, principal = e.ops_semana(ctx.ahora.date()), e.activo
+        L = [f"✅ {F.b(F.esc(res))}", f"{F.esc(t)}: {a['cantidad']:g} acciones a {simb}{F.n(a['precio'], 2)} (≈ $ {F.n(a['monto_cop'] / 1e6, 1)} millones)."]
+        if a["notas"]:
+            L.append("🧠 " + F.it("Lo que entendí: " + "; ".join(a["notas"]) + "."))
+        L += [f"🧾 Cuenta como operación de actividad: llevas {ops} de {act['ops_por_semana']} esta semana.",
+              f"🎯 Acción principal que vigila el sistema: {F.b(principal)} (la de mayor monto)."]
+        if a["aproximado"]:
+            L.append("⚠️ " + F.it("Precio APROXIMADO (el de hoy): la rentabilidad de esta acción no es exacta."))
+        if solo_bvc(ctx.cfg) and t not in ctx.cfg["universe"]["local"]:
+            L.append("🇨🇴 " + F.it("No es de la BVC: la vigilo porque la tienes, pero mis recomendaciones de compra son sólo de la BVC."))
+        L.append(F.it("¿Quedó mal? Escribe: me equivoqué"))
+        return "\n".join(L) + "\n\n" + _cartera_txt(ctx, leer_estado(ctx))
+    except (ValueError, ErrorEstado) as ex:
+        return f"❌ {F.esc(ex)}\nEjemplo: {F.b('compré 8 meta a 720,5')}"
+
+
+def resp_compra(ctx: Contexto, args: list[str]) -> str:
+    """/compra TICKER cantidad [precio] [monto_en_pesos]. También acepta nombres ('argos'), plata ('20M') y lo mismo que el texto libre."""
+    if len(args) < 2:
+        return uso_compra()
+    from .entender import Intencion, entender
+    libre = entender("compre " + " ".join(args), ctx.cfg, forzar="compra")
+    try:
+        cant = monto(args[1]) if args[1].lower().rstrip(".").endswith(("m", "mm", "k")) else numero(args[1])
+    except ValueError:
+        return f"❌ No entendí la cantidad «{F.esc(args[1])}».\nEjemplo: {F.b('/compra META 8 720,5')}"
+    es_plata = args[1].lower().endswith(("m", "mm", "k")) or cant >= 1e6
+    try:
+        precio = None
+        if len(args) > 2 and args[2].lower() != "confirmo":
+            crudo = args[2].strip().lstrip("$")
+            precio = libre.precio if re.fullmatch(r"\d{1,3}(\.\d{3})+(,\d+)?", crudo) and libre.precio else numero(crudo)      # "21.500" son veintiún mil quinientos
+        extra = monto(args[3]) if len(args) > 3 and args[3].lower() != "confirmo" else None
+    except ValueError as ex:
+        return f"❌ {F.esc(ex)}\nEjemplo: {F.b('/compra META 8 720,5')}"
+    i = Intencion("compra", ticker=libre.ticker or args[0].upper(), cantidad=None if es_plata else cant, precio=precio, monto=extra or (cant if es_plata else None))
+    return registrar_compra(ctx, i, confirmado=any(a.lower() == "confirmo" for a in args))
+
+
+def registrar_venta(ctx: Contexto, i: Any) -> str:
+    try:
+        with transaccion(ctx) as e:
+            cant = i.cantidad
+            if cant is None and i.fraccion is not None and i.fraccion < 1.0:
+                p = next((x for x in e.d["cartera"] if x["ticker"] == i.ticker), None)
+                cant = (p["cantidad"] * i.fraccion) if (p and p.get("cantidad")) else None
+            res = e.registrar_venta(i.ticker, cant, ctx.ahora)
+            a = ctx.cfg["concurso"]["actividad"]
+            ops = e.ops_semana(ctx.ahora.date())
+        return (f"✅ {F.b(F.esc(res))}\n🧾 Cuenta como operación de actividad: llevas {ops} de {a['ops_por_semana']} esta semana.\n"
+                + F.it("¿Quedó mal? Escribe: me equivoqué") + "\n\n" + _cartera_txt(ctx, leer_estado(ctx)))
+    except (ValueError, ErrorEstado) as ex:
+        return f"❌ {F.esc(ex)}"
+
+
+def resp_venta(ctx: Contexto, args: list[str]) -> str:
+    """/venta TICKER [cantidad]: registra que vendiste todo (o una parte) de una acción de tu cartera."""
+    if not args:
+        return f"{F.b('Cómo usar /venta')}\nDímelo como te salga: {F.b('vendí argos')} (todo), {F.b('vendí 20 tesla')} o {F.b('vendí la mitad de meta')}."
+    from .entender import Intencion
+    try:
+        cant = numero(args[1]) if len(args) > 1 else None
+    except ValueError as ex:
+        return f"❌ {F.esc(ex)}"
+    return registrar_venta(ctx, Intencion("venta", ticker=resolver(ctx, args[0], leer_estado(ctx).tenidos()), cantidad=cant, fraccion=None if cant else 1.0))
+
+
+def resp_deshacer(ctx: Contexto) -> str:
+    try:
+        with transaccion(ctx) as e:
+            que = e.deshacer()
+        return f"↩️ {F.b('Listo: deshice ' + que)}.\n\n" + _cartera_txt(ctx, leer_estado(ctx))
+    except ErrorEstado as ex:
+        return f"❌ {F.esc(ex)}"
+
+
+def resp_texto(ctx: Contexto, texto: str, forzar: str | None = None, solo_lectura: bool = False) -> dict[str, Any]:
+    """Mensaje escrito sin comando. Devuelve {'texto': respuesta} o {'consulta': nombre, 'ticker': …} para que el bot ejecute ese comando (con su aviso de espera).
+    `solo_lectura`: el chat no es el del dueño y la escritura está reservada: se entiende el mensaje pero no se registra nada."""
+    from .entender import entender
+    est = leer_estado(ctx)
+    i = entender(texto, ctx.cfg, est.tenidos(), forzar)
+    if solo_lectura and i.tipo in ("deshacer", "rank", "compra", "venta"):
+        return {"texto": "🔒 Sólo el dueño del bot puede registrar compras, ventas o el ranking."}
+    if i.tipo == "deshacer":
+        return {"texto": resp_deshacer(ctx)}
+    if i.tipo == "rank":
+        return {"texto": guardar_rank(ctx, i.mia, i.objetivo)}
+    if i.tipo in ("compra", "venta"):
+        if "ticker" in i.falta:
+            pista = (" ¿Quisiste decir " + " o ".join(F.b(x) for x in i.sugerencias) + "?") if i.sugerencias else ""
+            ej = "compré 300 argos a 21500" if i.tipo == "compra" else "vendí argos"
+            return {"texto": f"🤔 No reconocí qué acción {'compraste' if i.tipo == 'compra' else 'vendiste'}.{pista}\nEscríbelo así: {F.b(ej)}", "pendiente": i.tipo}
+        if i.tipo == "compra":
+            if "cantidad" in i.falta:
+                return {"texto": f"¿Cuántas acciones de {F.b(i.ticker)} compraste, o cuánta plata metiste?\nEscribe por ejemplo {F.b('300')} o {F.b('20 millones')}.",
+                        "pendiente": "compra", "ticker": i.ticker}
+            return {"texto": registrar_compra(ctx, i, confirmado="confirmo" in texto.lower())}
+        return {"texto": registrar_venta(ctx, i)}
+    if i.tipo == "consulta":
+        return {"consulta": i.consulta, "ticker": i.ticker}
+    return {"texto": ""}
+
+
+def resp_comprar(ctx: Contexto) -> str:
+    """/comprar: qué acción de la BVC comprar, qué esperar y por cuánto tiempo (las de mayor movimiento esperado hasta el próximo corte + la Regla Maestra)."""
+    est = leer_estado(ctx)
+    r = ejecutar_motor(ctx.f, est, ctx.cfg, ctx.ahora, ctx.puntuador, ctx.motor)
+    hora = C.hora_orden_manana(C.proxima_sesion(ctx.ahora, ctx.cfg) or ctx.ahora.date(), ctx.cfg)
+    from . import noticias_bvc as N
+    return F.msg_que_comprar(r.banco, r.activo, r.mee, r.decision, r.corte, C.sesiones_restantes(ctx.ahora, ctx.cfg), senales_recientes(24, ctx.ahora), hora, ctx.cfg,
+                             n_estudio=N.cargar_estudio().get("n_total"))
+
+
+def mejor_bvc(ctx: Contexto) -> dict[str, Any] | None:
+    """La acción de la BVC con más movimiento esperado hasta el próximo corte (la primera del banco). Se usa como sugerencia al pie de los avisos de noticias."""
+    est = leer_estado(ctx)
+    corte = C.corte_vigente(ctx.ahora, ctx.cfg)
+    if corte is None:
+        return None
+    from .relevo import construir_banco
+    cands = candidatos_banco(ctx.f, ctx.cfg, ctx.ahora, est.activo, None, ctx.puntuador, ctx.motor)
+    banco = construir_banco(cands, est.activo, ctx.cfg, set(est.tenidos()))
+    return dict(ticker=banco[0].c.ticker, mee=banco[0].c.mee, corte=corte["fecha"]) if banco else None
+
+
+BOTONES_NOTICIA = [[("🛒 Qué comprar", "c:comprar"), ("💼 Mi cartera", "c:cartera")]]
+
+
+def tick_noticias(ctx: Contexto, lector: Any, mem: Any, sugerencia: dict[str, Any] | None = None) -> list[str]:
+    """Una ronda del vigía de noticias de la BVC (cada 2 minutos): lee las fuentes y avisa SÓLO lo nuevo de alto impacto. Devuelve los mensajes generados."""
+    from . import noticias_bvc as N
+    est = leer_estado(ctx)
+    senales, salud = N.ronda(lector, mem, ctx.f, ctx.ahora, ctx.cfg, est.tenidos())
+    mensajes = []
+    for s in senales:
+        botones = BOTONES_NOTICIA
+        if s.sentido > 0 and not s.rec["tengo"]:
+            botones = [[("✅ La compré", f"k:{s.ticker}")]] + BOTONES_NOTICIA
+        m = F.msg_noticia_bvc(s, ctx.ahora, ctx.cfg, sugerencia if (sugerencia and sugerencia["ticker"] != s.ticker) else None)
+        mensajes.append(m)
+        enviar_o_encolar(ctx, m, botones)
+    if salud:                                                                          # aviso si TODAS las fuentes llevan varias rondas caídas (y cuando vuelven)
+        ok, antes = any(salud.values()), int(mem.d.get("rondas_sin_fuentes", 0))
+        if not ok or antes:                                                            # con todo bien no se toca state.json (se escribiría cada 2 minutos sin necesidad)
+            with transaccion(ctx) as e:
+                ev = e.registrar_fuente("noticias_bvc", ok, ctx.ahora, 5, 180)
+            if ev:
+                enviar_o_encolar(ctx, F.msg_salud("las noticias de la BVC", ev, ctx.ahora, RESPALDO_FUENTE["noticias_bvc"], salud))
+        mem.d["rondas_sin_fuentes"] = 0 if ok else antes + 1
+    mem.d["salud"] = salud
+    if not ctx.dry:
+        mem.guardar()
+    return mensajes
+
+
+def resp_op(ctx: Contexto) -> str:
+    with transaccion(ctx) as e:
+        e.registrar_op(ctx.ahora)
+        a = ctx.cfg["concurso"]["actividad"]
+        sem = e.ops_semana(ctx.ahora.date())
+        return (f"✅ {F.b('Operación anotada')}. Esta semana llevas {sem} de {a['ops_por_semana']} y en total {e.ops_total()} de {a['minimo_total']}."
+                + (" 🎯 ¡Ya cumpliste la meta de esta semana!" if sem >= a["ops_por_semana"] else ""))

@@ -1,0 +1,52 @@
+name: Monitor (manual; lo reemplaza el Vigía)
+
+# MODO ANTIGUO (sólo botón manual). Desde el 5-oct-2026 todo lo hace el flujo "Vigía" (vigia.yml) en un proceso continuo; este se dejó sin horario para que
+# no choque con él (comparten el estado y Telegram sólo admite un lector por bot). Úsalo sólo con el vigía APAGADO.
+# Hora UTC (Colombia es UTC-5, sin horario de verano). 13:00-21:45 UTC = 08:00-16:45 en Bogotá: cubre el horario de trii de octubre (8:30-15:00)
+# y el de noviembre (9:30-16:00). Fuera de horario monitor.py termina en segundos sin enviar nada.
+on:
+  workflow_dispatch:                # botón "Run workflow" (también desde la app de GitHub en el celular)
+    inputs:
+      forzar:
+        description: "Ignorar el horario de bolsa (prueba)"
+        type: boolean
+        default: false
+      prueba:
+        description: "Enviar UN mensaje de prueba a tu Telegram (para confirmar que la nube te puede escribir)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: bolsa-estado               # monitor, radar y bot comparten el estado: nunca dos a la vez
+  cancel-in-progress: false
+
+permissions:
+  contents: write                   # para guardar el estado en la rama 'estado'
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+      ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-nube.txt
+      - run: pip install -r requirements-nube.txt
+      - name: Recuperar el estado
+        run: python nube/sincronizar_estado.py bajar
+      - name: Monitor
+        run: python monitor.py ${{ inputs.forzar && '--forzar' || '' }} ${{ inputs.prueba && '--prueba' || '' }}
+      - name: Contestar tus mensajes pendientes (comandos del bot)
+        continue-on-error: true               # si el bot del PC está encendido, Telegram da error 409: no es grave
+        run: python bot.py --una-vez
+      - name: Guardar el estado
+        if: always()
+        run: python nube/sincronizar_estado.py subir

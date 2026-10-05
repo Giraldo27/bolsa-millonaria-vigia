@@ -1,0 +1,74 @@
+name: Vigía (bot al instante + noticias BVC cada 2 min + monitor + radar)
+
+# UN proceso continuo (vigia.py) que contesta el chat de Telegram al instante y revisa las noticias de la BVC cada 2 minutos.
+# NO depende del "cron" de GitHub (que en este repositorio no se dispara): cada eslabón vive 5 h 30 min y, al terminar, lanza el siguiente.
+#
+#   ENCENDER: pestaña Actions → "Vigía…" → Run workflow.      APAGAR: abre la ejecución en curso → Cancel run (al cancelar NO se relanza).
+#
+# Consumo: funciona las 24 horas (≈ 1.440 minutos de Actions por día). En un repositorio PÚBLICO los minutos son gratis e ilimitados; en uno PRIVADO
+# el plan gratuito trae 2.000 al mes (alcanza para menos de 2 días). Con el repositorio público, el estado se guarda CIFRADO (secreto ESTADO_CLAVE).
+# Telegram sólo permite UN lector por bot: no corras vigia.py ni bot.py en tu PC mientras esto esté encendido.
+on:
+  workflow_dispatch:
+    inputs:
+      minutos:
+        description: "Duración de este eslabón en minutos (vacío = la de config.yaml: 330)"
+        required: false
+        default: ""
+      encadenar:
+        description: "Al terminar, lanzar el siguiente eslabón (quítalo para una prueba corta)"
+        type: boolean
+        default: true
+
+concurrency:
+  group: bolsa-estado               # nunca dos procesos a la vez: comparten el estado y el bot de Telegram
+  cancel-in-progress: false
+
+permissions:
+  contents: write                   # guardar el estado en la rama 'estado'
+  actions: write                    # lanzar el siguiente eslabón
+
+jobs:
+  vigia:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+      ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
+      ESTADO_CLAVE: ${{ secrets.ESTADO_CLAVE }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-nube.txt
+      - run: pip install -r requirements-nube.txt
+      - name: Recuperar el estado
+        run: python nube/sincronizar_estado.py bajar
+      - name: Vigía
+        id: vigia
+        run: |
+          inicio=$(date +%s)
+          python vigia.py ${{ inputs.minutos && format('--minutos {0}', inputs.minutos) || '' }} ${{ inputs.encadenar == false && '--prueba' || '' }} || echo "fallo=1" >> "$GITHUB_OUTPUT"
+          echo "duro=$(( $(date +%s) - inicio ))" >> "$GITHUB_OUTPUT"
+      - name: Guardar el estado
+        if: always()
+        run: python nube/sincronizar_estado.py subir
+      - name: Lanzar el siguiente eslabón
+        if: ${{ !cancelled() && inputs.encadenar != false }}      # si lo cancelas a mano, la cadena se detiene
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DURO: ${{ steps.vigia.outputs.duro }}
+        run: |
+          minimo=$(python -c "from src.config import load_config; print(load_config()['vigia']['vida_minima_s'])")
+          if [ "${DURO:-0}" -ge "$minimo" ]; then
+            gh workflow run vigia.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME"
+            echo "siguiente eslabón lanzado"
+          else
+            # murió casi al arrancar: relanzarlo sería un bucle de fallos. Se avisa y se detiene.
+            python -c "from src.config import load_config; from src.notify import enviar; enviar('⚠️ <b>El bot se apagó</b>\nEl proceso de la nube falló al arrancar y no lo relancé para no entrar en un bucle. Avísale a quien te lo configuró (o vuelve a encenderlo en GitHub → Actions → Vigía → Run workflow).', load_config())"
+            exit 1
+          fi

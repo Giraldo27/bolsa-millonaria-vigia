@@ -1,0 +1,486 @@
+# Todos los parámetros de la estrategia y del análisis viven aquí.
+paths:
+  data_dir: data
+  cache_dir: data/cache
+  outputs_dir: outputs
+  reports_dir: reports
+
+data:
+  start: "2005-01-01"       # máximo historial disponible (mínimo requerido: 2015)
+  min_start_analysis: "2015-01-01"
+  recent_years: 3           # ventana "régimen actual" para ATR% y liquidez
+  clean_macro: {usdcop: 0.08, gbpusd: 0.08}   # tolerancia vs mediana móvil para eliminar ticks erróneos de divisas
+
+# ---------------- Universo ----------------
+universe:
+  mgc: [AAPL, AMZN, BAC, C, DIS, F, GE, GOOGL, JNJ, JPM, KO, MA, META, MSFT, NUCO, NVDA, PBR, PFE, TSLA, UBER, V, WMT]
+  etf: [CSPX, EQQQ, IB01, ICLN, SUWS]
+  local: [AVAL, BCOLOMBIA, BHI, BOGOTA, BVC, CELSIA, CEMARGOS, CNEC, CORFICOLCF, ECOPETROL, ENKA, EXITO, GEB,
+          GRUPOARGOS, GRUPOSURA, HCOLSEL, ISA, MINEROS, NUTRESA, PEI, PFAVAL, PFBCOLOM, PFCEMARGOS, PFCORFICOL,
+          PFGRUPOARG, PFSURA, PROMIGAS, TERPEL]
+  blacklist: [CONCONCRET, ELCONDOR, ETB, FABRICATO, OCCIDENTE, POPULAR, VILLAS]
+  system_assets: [TSLA, NVDA, ECOPETROL]
+  reserve: PFBCOLOM
+
+# Símbolo de Yahoo cuando no es el que sale por defecto (local => <T>.CL, MGC => <T>)
+yahoo_symbol:
+  NUCO: NU                  # Nu Holdings (cotiza en Colombia como NUCO)
+  CSPX: CSPX.L
+  EQQQ: EQQQ.L
+  IB01: IB01.L
+  SUWS: SUWS.L
+  AVAL: GRUPOAVAL.CL
+  PFSURA: PFGRUPSURA.CL
+  PFBCOLOM: PFCIBEST.CL     # Bancolombia pasó a llamarse Grupo Cibest (2025): en Yahoo la preferencial es PFCIBEST.CL (en pesos, con historia desde 2008)
+  BCOLOMBIA: CIBEST.CL      # la ordinaria. Antes se usaba el ADR CIB (en dólares), que dañaba la liquidez y la rentabilidad de estas dos acciones
+  ECOPETROL: ECOPETROL.CL
+adr_proxy:
+  ECOPETROL: EC             # sólo para fechas de resultados (y respaldo de precio)
+macro:
+  brent: "BZ=F"
+  usdcop: "COP=X"
+  gbpusd: "GBPUSD=X"        # sólo para convertir liquidez de ETFs londinenses
+  ndx: "^NDX"
+  icolcap: "ICOLCAP.CL"
+
+# ---------------- Fase 1: ranking ----------------
+ranking:
+  atr_period: 14
+  weights: {volatilidad: 0.30, liquidez: 0.30, catalizadores: 0.20, pre_reporte: 0.20}
+  liquidez_split: {valor_negociado: 0.6, dias_sin_volumen: 0.4}
+  contest_window: {start_month: 10, start_day: 5, end_month: 11, end_day: 6}
+  catalyst_proxy:           # NVDA: primer reporte de cada temporada de estos
+    NVDA: [MSFT, GOOGL, META]
+  cluster_gap_days: 30
+  pre_report_entry_sessions_before: 2
+
+# ---------------- Costos (trii) ----------------
+costs:
+  fixed_threshold_cop: 5000000
+  fixed_fee_cop: 14875            # 12.500 + IVA 19 %
+  pct_fee: 0.002975               # 0,25 % + IVA 19 %
+  min_position_cop: 5000000
+  generic:                        # costos de activos que no son del sistema original (supuesto: igual que TSLA/NVDA)
+    spread: {mgc: 0.003, etf: 0.003, local: 0.003}
+    slippage: {mgc: 0.004, etf: 0.004, local: 0.004}
+  entry_spread: {ECOPETROL: 0.002, TSLA: 0.003, NVDA: 0.003}
+  exit_slippage: {ECOPETROL: 0.003, TSLA: 0.004, NVDA: 0.004}   # sólo SL y salida por tiempo/mercado
+  activity_micro_buy_cop: 14875
+
+# ---------------- Reglas por activo ----------------
+assets:
+  ECOPETROL: {tp: 0.06, sl: 0.03, trail_trigger: 0.04, trail_sl: 0.015, min_win_rate: 0.44}
+  NVDA:      {tp: 0.07, sl: 0.035, trail_trigger: 0.045, trail_sl: 0.015, min_win_rate: 0.44}
+  TSLA:      {tp: 0.08, sl: 0.04, trail_trigger: 0.055, trail_sl: 0.015, min_win_rate: 0.43}
+  TSLA_allin: {tp: 0.12, sl: 0.06, trail_trigger: 0.08, trail_sl: 0.03}
+
+setups:
+  priority: [B, A, C]
+  max_positions: 2
+  max_hold_sessions: 8
+  B:
+    entry_sessions_before_report: 2
+  A:
+    drop_threshold: {ECOPETROL: 0.03, NVDA: 0.04, TSLA: 0.05}
+    attack_reduction: 0.01
+    time_stop: 3
+    skip_day_after_own_report: true
+  C:
+    brent_up: 0.025
+    time_stop: 5
+    asset: ECOPETROL
+
+rules:
+  same_candle_assumption: SL      # SL | TP
+  brent_drop_exit: 0.025          # ECOPETROL: vende al cierre si Brent cae >= esto
+  usdcop_drop_trigger: 0.01       # TSLA/NVDA: si USD/COP cae >= esto, SL pasa a entrada -2 %
+  usdcop_sl: 0.02
+  fomc_blackout_days: 2           # día anterior y día de la decisión: sin entradas MGC
+  usd_assets: [TSLA, NVDA]        # cotizan en USD (MGC): P&L convertido con COP=X y sujetos a FOMC y a regla USD/COP
+  entry_order: [TSLA, NVDA, ECOPETROL]   # desempate cuando dos señales del mismo setup coinciden el mismo día
+
+backtest:
+  start: "2015-01-02"             # acordado con el usuario (historia TSLA/NVDA/ECOPETROL completa desde antes)
+  oos_split: "2022-01-01"         # validación temporal: optimizar < esta fecha, validar >= esta fecha
+  end: null                       # null = último dato
+
+modes:
+  blindaje: {positions: 2, size: 0.20}
+  mantener: {positions: 2, size: 0.40}
+  ataque:   {positions: 2, size: 0.50, attack: true}
+  allin:    {positions: 1, size: 1.00, only_asset: TSLA, hold_through_reports: true, setups: [A, B]}
+
+# Mejoras que pasaron la validación fuera de muestra (run_fase4.py -> outputs/fase4/decisiones.csv).
+# Rutas con '__' = ruta dentro de este archivo; se aplican con src.sweep.override().
+mejoras_validadas:
+  assets__ECOPETROL__tp: 0.03          # TP x SL: zona plana de SL amplio (mejora OOS +0,45 pp)
+  assets__ECOPETROL__sl: 0.08
+  assets__ECOPETROL__trail_trigger: 0.02
+  assets__NVDA__tp: 0.10               # TP x SL (mejora OOS +0,36 pp)
+  assets__NVDA__sl: 0.08
+  assets__NVDA__trail_trigger: 0.067
+  filters: {A: {ECOPETROL: {trend: sma20_gt_sma50}, TSLA: {rsi_max: 40}}}   # filtros Setup A (mejora OOS +0,31 y +0,47 pp)
+  setups__enabled_assets: {C: []}      # Setup C (Brent) eliminado: negativo dentro y fuera de muestra en todas las variantes
+
+league:                      # simulador de ligas (opcional)
+  n_participants: 1000
+  seed: 2026
+  step: 3                    # una ventana cada 3 sesiones (las ventanas de 23 sesiones se solapan mucho)
+  cut_T: {5: 30, 10: 30, 15: 10, 20: 10, 23: 10}   # % que asciende en cada corte (Bronce/Plata 30, Oro 10); 23 = final
+  participant_entry_cost: 0.003   # spread de entrada de los participantes sintéticos (+ comisión de trii)
+  start_mode: mantener
+
+# ---------- Estrategia v2 (rediseño de la Fase 4d-4h) ----------
+v2:
+  core: {L: 120, N: 2, regime: true, trend: none, stop: null, K: 0}     # momentum 120 sesiones, mantener, sin stops
+  pead: {threshold: 0.05, hold: 20, n_total: 3, replace: true}          # reacción >= +5 % al reporte (acciones MGC)
+  regime_sma: 100                                                       # Nasdaq-100 sobre su media de 100 días
+  universe: mgc                                                         # acciones MGC (ver make_universes)
+  # modo dinámico: (fracción del patrimonio, nº de posiciones) según la matriz P/T/D
+  size_modes: {blindaje: [0.4, 2], mantener: [0.8, 2], ataque: [1.0, 2], allin: [1.0, 1]}
+
+# ---------- PLAN FINAL: concentrado en la acción MGC más volátil (Fase 4i-4k) ----------
+plan:
+  nombre: "Concentrado: acción MGC más volátil"
+  vol_window: 250                     # volatilidad de 250 sesiones (la más estable; elige TSLA hoy)
+  universe: mgc                       # acciones MGC (ver universe.mgc)
+  size: 1.0                           # 100 % del patrimonio
+  stop: null                          # sin stops duros (empeoran el resultado)
+  derisk: false                       # no se reduce exposición al ir liderando (baja la prob. de ganar)
+  exclude_from_ranking: []            # tickers a excluir del ranking (p. ej. si trii no los deja operar)
+  loss_alert: -0.15                   # sólo informativo: aviso si la posición cae esta fracción desde la compra
+  earnings_alert_days: 3              # avisar cuántos días antes del reporte de la acción en cartera
+
+capital: 100000000
+contest:
+  start: "2026-10-05"
+  end: "2026-11-06"
+  sessions: 23
+  holidays: ["2026-10-12", "2026-11-02"]    # festivos colombianos dentro del concurso (no hay sesión)
+  weekly_cuts: [5, 10, 15, 20]              # sesiones al cierre de cada corte semanal
+
+# ======================================================================================================
+# SISTEMA DE MONITOREO Y REGLA MAESTRA (Plan Definitivo v5, reglas OFICIALES de trii)
+# ======================================================================================================
+concurso:
+  inicio: "2026-10-05"
+  fin: "2026-11-06"
+  zona_horaria_utc: -5                      # hora de Bogotá (sin horario de verano)
+  festivos: ["2026-10-12", "2026-11-02"]    # trii/bvc cerrados (NYSE abre, pero no se puede operar)
+  horario:                                  # horario de órdenes bvc/trii
+    - {desde: "2026-10-05", hasta: "2026-10-30", apertura: "08:30", cierre: "15:00"}
+    - {desde: "2026-11-02", hasta: "2026-11-06", apertura: "09:30", cierre: "16:00"}
+  hora_orden_manana: {octubre: "08:45", noviembre: "09:45"}   # ejecución en días de decisión
+  ranking: solo_rentabilidad_acumulada      # NO hay puntaje por actividad
+  cortes:                                   # al cierre de cada viernes
+    - {fecha: "2026-10-09", semana: 1, top_pct: 50, liga: "Bronce → Plata"}
+    - {fecha: "2026-10-16", semana: 2, top_pct: 33, liga: "Plata → Oro"}
+    - {fecha: "2026-10-23", semana: 3, top_pct: 10, liga: "Oro → Diamante"}
+    - {fecha: "2026-10-30", semana: 4, top_pct: 10, liga: "Corte clave: define quién juega por el #1"}
+  final: {fecha: "2026-11-06", semana: 5, meta: "#1 de Diamante"}
+  actividad:                                # requisito para optar a premios, NO da puntos
+    ops_por_semana: 4
+    minimo_semanal_requerido: 3
+    minimo_total: 15
+    micro_compra_cop: 100000
+    activo_micro: ECOPETROL
+
+posicion_base: {ticker: TSLA, peso: 0.97}   # 97 % en TSLA; el 3 % queda en efectivo para micro-compras
+seleccion_base:                             # criterio con el que se confirmó TSLA (4-oct) y se revisa la base
+  peso_iv: 0.5                              # movimiento esperado = 0,5 × IV + 0,5 × volatilidad realizada
+  vol_realizada_dias: 60
+  ventaja_minima: 0.20                      # otro activo reemplaza a la base sólo si su movimiento esperado la supera en 20 %
+  oi_min: 100                               # open interest mínimo del strike ATM para fiarse de la IV
+  spread_opcion_max: 0.25                   # (ask-bid)/mid máximo del strike ATM
+  valor_negociado_min_usd_mm: 500           # liquidez mínima de la acción (millones de USD por día)
+
+# ----------------------------- Fase 2: motor de decisión -----------------------------
+semaforo:
+  sigma_dias: 20                            # σ para z
+  beta_dias: 60                             # beta y σ del residual
+  vol_dias: 20                              # promedio de volumen
+  z_caida: -2.0                             # z <= esto: caída anormal del día
+  z_res_azul: -1.5                          # AZUL si z_res > esto (la caída la explica el mercado)
+  z_res_caida: -2.0                         # AMARILLO / ROJO si z_res <= esto
+  zona_gris: AMARILLO                       # z_res entre z_res_caida y z_res_azul (no definida en el enunciado): se trata como...
+  vol_rel_min: 1.5                          # ROJO exige vol_rel >= esto
+  resid_acum_dias: 5
+  resid_acum_umbral: -2.5                   # ROJO si el residual de 5 días <= -2,5 × σ5 con noticias negativas
+  sentimiento_negativo: -0.3
+  min_titulares_24h: 1                      # sin titulares en 24 h no hay "noticia negativa"
+  recuperacion_negro: 0.5                   # NEGRO si al cierre del 2.º día no recuperó el 50 % de la caída
+  rojo_es_negro_si_corte_manana: true
+  titulares_clave: 3
+  ratio_pico_noticias: 2.0                  # informativo: titulares 24 h / promedio diario de 30 días
+  palabras_negativas: [guidance, recall, recalls, investigation, investigations, sec, lawsuit, lawsuits, sued, downgrade, downgrades,
+                       downgraded, miss, misses, missed, delivery, deliveries, probe, probes, fraud, bankruptcy, halt, plunge]
+  # Si el titular contiene alguna de estas, la palabra clave negativa NO cuenta ("Tesla beats delivery estimates" no es una mala noticia).
+  # VADER no entiende el contexto financiero; FinBERT sí (por eso FinBERT es el motor preferido si se instala).
+  palabras_positivas_anulan: [beat, beats, beating, record, records, surge, surges, soar, soars, tops, topped, exceeds, exceeded, raises,
+                              raised, upgrade, upgrades, upgraded, rally, rallies, strong, outperform, outperforms]
+  # Titulares en español (acciones locales, vía Google News RSS)
+  palabras_negativas_es: [demanda, demandas, investigación, investigaciones, sanción, sanciones, multa, multas, incumple, incumplimiento,
+                          rebaja, degrada, calificación negativa, fraude, quiebra, escándalo, críticas, alerta, crisis, derrumbe, desplome,
+                          se desploma, colapso, paro, huelga, suspende, suspensión, pérdida, pérdidas, accidente, derrame, atentado, cae,
+                          caída, recorte, déficit, riesgo]
+  palabras_positivas_anulan_es: [récord, supera, sube, alza, gana, ganancia, ganancias, utilidad, utilidades, crece, crecimiento, aprueba,
+                                 expansión, mejora, dividendo, dividendos, recupera, positivo]
+  # Respaldo SIN noticias (todas las fuentes caídas): una caída propia con volumen anormal y hueco de apertura se trata como si
+  # hubiera noticia negativa (se avisa en el mensaje). Es una aproximación: apágala con activo: false si prefieres no tener ROJO sin noticias.
+  proxy_sin_noticias: {activo: true, vol_rel_min: 2.0, gap_sigma: 1.0}
+sentimiento:
+  motor: vader                              # vader | finbert (si no está instalado cae a vader)
+  finbert_modelo: ProsusAI/finbert
+  usar_resumen: false                       # sólo el titular (más rápido y menos ruido)
+  # Léxico simple para titulares en español (VADER sólo entiende inglés): puntaje = (positivas − negativas) / (positivas + negativas + 1)
+  lexico_es:
+    negativas: [caída, cae, caen, se desploma, desplome, pierde, pérdida, pérdidas, demanda, investigación, sanción, multa, rebaja, riesgo,
+                crisis, paro, huelga, suspende, fraude, quiebra, escándalo, críticas, alerta, déficit, recorte, derrumbe, colapso, accidente,
+                derrame, atentado, incumple, baja, retrocede, preocupa, temor]
+    positivas: [sube, suben, alza, gana, ganancia, ganancias, utilidad, utilidades, récord, crece, crecimiento, aprueba, expansión, mejora,
+                dividendo, dividendos, recupera, avanza, supera, positivo, optimismo, impulsa]
+mee:
+  respaldo_sigma_dias: 20
+  # Base de tiempo del respaldo (sin IV, o acciones locales):
+  #   consistente = σ_diaria × √252 × √(días calendario / 365): mismo "reloj" que la IV (IV × √(días/365)), comparación justa.
+  #   literal     = σ_diaria × √(sesiones), tal como pide el enunciado; da ~17 % más que la IV para el mismo activo y favorece a los
+  #                 candidatos sin opciones (locales) en la Regla Maestra.
+  respaldo: consistente
+banco:
+  grupos_candidatos: [local]                # SÓLO BVC (decisión del usuario, 5-oct-2026). Para volver a incluir EE. UU.: [mgc, local]. Los ETF casi no se mueven.
+  excluir_duplicados: []                    # (antes BCOLOMBIA, cuando compartía el ADR CIB con PFBCOLOM; ya tienen símbolo propio)
+  exigir_noticias: true                     # las noticias influyen: no se recomienda un activo sin datos de noticias (no se le puede detectar ROJO/NEGRO)
+  relajar_si_menos_de: 3                    # RESPALDO: si con ese filtro quedan menos de 3 candidatos (p. ej. caída de las fuentes de noticias), se
+                                            # relaja y los candidatos sin noticias se marcan "sin datos de noticias"
+  max_hilos: 6                              # consultas en paralelo al armar el banco
+  top_n: 7
+  corr_dias: 60
+  tolerancia_mee: 0.10                      # candidatos con MEE a menos de 10 % del mejor se consideran empatados
+  vol_rel_desempate: 1.5
+  liquidez_min_usd_mm: 150                  # valor negociado diario mínimo de acciones MGC/ETF (millones de USD)
+  liquidez_min_cop_mm_locales: 2000         # acciones locales (millones de COP por día)
+regla_maestra:
+  margen_g_pp: 1.0                          # g = objetivo − mi rentabilidad + 1
+  costo_cambio_pp: 1.3
+  d_negro: 1.5                              # con el activo en NEGRO: (g + 1,3)/(g + d)
+  ventaja_negro_pp: 3.0                     # NEGRO también aplica si voy adelante por <= 3 puntos
+  caida_desde_entrada_pp: -15.0             # si voy adelante por más: sólo cambiar si el activo acumula -15 % desde la entrada
+  excluir_semana_final: [TSLA, NVDA]        # semana 5 sin ir #1: no son candidatos nuevos
+  ultimo_dia_ventaja_vender_pp: 8.0
+  cambio_por_negro: false                   # FASE 3 (4-oct-2026): NEGRO NO mostró deriva a la baja en acciones grandes (IC95 de AR a 5 y 10 sesiones cruza 0) →
+                                            # queda sólo como información. Con true, NEGRO baja el listón de la Regla Maestra a (g + 1,3) / (g + d).
+
+costos_v5:
+  comision_pct: 0.002975                    # 0,25 % + IVA, operaciones de más de $5.000.000
+  comision_fija_cop: 14875                  # hasta $5.000.000
+  umbral_fijo_cop: 5000000
+  spread_mgc: 0.003
+  slippage_mgc: 0.004
+  costo_cambio: 0.013                       # costo aproximado de cambiar de activo (vender + comprar)
+
+estado:
+  archivo: data/state.json
+  max_cambios: 4
+  max_cambios_por_dia: 1
+  lock_timeout_s: 15                        # espera máxima por el candado de escritura (monitor, bot y radar escriben el mismo archivo)
+  alertas_pendientes_max: 20                # alertas que no se pudieron enviar (se reintentan en la siguiente corrida)
+
+monitor:
+  enfriamiento_min: 30                      # no repetir la alerta del mismo activo antes de este tiempo (evita rebotes de color)
+  alertar_banco: true                       # avisar si un candidato del banco entra o sale de ROJO/NEGRO
+  fallos_para_avisar: 3                     # corridas seguidas sin datos de precios antes de avisar que el monitor está ciego
+  aviso_salud_cada_min: 60                  # no repetir el aviso de fuente caída antes de este tiempo
+  eventos:                                  # avisos automáticos de novedades (además de los cambios de color); cada tipo recuerda lo que ya avisó
+    activo: true
+    max_por_corrida: 3                      # tope de avisos de novedades en una misma revisión (anti-spam)
+    noticias: {activo: true, ventana_h: 6, enfriamiento_min: 20, positiva_min: 0.6, max_por_aviso: 3}   # titulares nuevos de las últimas 6 h, claramente malos o muy buenos
+    decision: {activo: true, enfriamiento_min: 60}     # la Regla Maestra pasa a recomendar (o deja de recomendar) cambiar
+    calendario: {activo: true}              # reporte de resultados de tu acción, evento macro del día y corte mañana (una vez cada uno)
+    alza_fuerte_z: 2.0                      # aviso (una vez al día) si tu acción sube con z ≥ este valor
+radar:
+  hora: "19:30"
+  dias_catalizadores: 10                    # días hábiles hacia adelante
+  noches_decision: ["2026-10-08", "2026-10-15", "2026-10-22", "2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29",
+                    "2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05"]    # el radar las marca; la Regla Maestra se calcula todas las noches
+bot:
+  chat_id_env: TELEGRAM_CHAT_ID             # el bot sólo responde a este chat
+  titulares_max: 8
+  responder_a: todos                        # todos = contesta a cualquier chat o grupo (decisión del usuario) | solo_mi_chat = sólo a TELEGRAM_CHAT_ID
+  escritura_solo_mi_chat: false             # true = /rank, /pos y /op (cambian el seguimiento) sólo desde TELEGRAM_CHAT_ID, aunque los demás puedan consultar
+  enfriamiento_pesado_s: 45                 # segundos entre consultas grandes (/informe, html, /banco, /actualizar) del mismo chat
+
+fuentes:
+  cache_dir: data/cache/live
+  ttl_min: {diario: 60, intradia: 5, ndx: 5, opciones: 30, noticias: 10, reportes: 360, cotizacion: 2}   # minutos
+  reintentos: {intentos: 3, espera_s: 1.5, factor: 2.0}          # backoff exponencial ante errores/límites
+  yahoo: {intervalo_intradia: "15m", dias_intradia: 5, dias_diario: 400}
+  finnhub: {base_url: "https://finnhub.io/api/v1", limite_por_min: 55, timeout_s: 20}   # plan gratuito: 60/min
+  alphavantage: {base_url: "https://www.alphavantage.co/query", limite_por_dia: 25, timeout_s: 25, solo_si_vacio: true}
+  # Cadena de respaldo de noticias (en este orden): Finnhub → Yahoo RSS → Google News RSS (EE. UU. en inglés, locales en español) →
+  # Alpha Vantage (sólo con clave) → caché vencida. Los respaldos sólo se consultan si el anterior falló o dio menos de min_titulares_respaldo.
+  noticias:
+    ventana_h: 24
+    base_dias: 30
+    max_titulares: 80
+    proveedores: [finnhub, yfinance, yahoo_rss, google_rss, alphavantage]
+    min_titulares_respaldo: 3
+    rss_timeout_s: 20
+    google_cuando: "2d"
+    consultas_google:                       # texto de búsqueda por ticker local (por defecto "<TICKER> stock" en EE. UU.)
+      ECOPETROL: "Ecopetrol acción"
+      ISA: "ISA Interconexión Eléctrica"
+      GRUPOSURA: "Grupo Sura acción"
+      PFSURA: "Grupo Sura acción"
+      GRUPOARGOS: "Grupo Argos acción"
+      PFGRUPOARG: "Grupo Argos acción"
+      CEMARGOS: "Cementos Argos acción"
+      PFCEMARGOS: "Cementos Argos acción"
+      CELSIA: "Celsia energía acción"
+      GEB: "Grupo Energía Bogotá"
+      EXITO: "Grupo Éxito acción"
+      NUTRESA: "Grupo Nutresa acción"
+      PROMIGAS: "Promigas"
+      TERPEL: "Terpel acción"
+      MINEROS: "Mineros S.A. acción"
+      CORFICOLCF: "Corficolombiana acción"
+      PFCORFICOL: "Corficolombiana acción"
+      BOGOTA: "Banco de Bogotá acción"
+      AVAL: "Grupo Aval acción"
+      PFAVAL: "Grupo Aval acción"
+      PFBCOLOM: "Bancolombia acción"
+      BCOLOMBIA: "Bancolombia acción"
+      BVC: "Bolsa de Valores de Colombia acción"
+      CNEC: "Canacol Energy"
+      ENKA: "Enka de Colombia"
+      PEI: "PEI Estrategias Inmobiliarias"
+  opciones:
+    oi_min: 10                              # open interest mínimo para usar un strike
+    spread_rel_max: 0.5                     # (ask-bid)/mid máximo aceptado
+    dias_min_tras_corte: 1                  # el vencimiento debe ser posterior al corte
+  telegram: {timeout_s: 20, max_largo: 3900}
+  # Traducción de titulares al español (MyMemory, gratis, ~5.000 caracteres/día). Sin cupo o sin internet se muestra el titular original.
+  traduccion: {activo: true, ttl_dias: 14, timeout_s: 8, limite_diario_chars: 4500, max_por_mensaje: 3}
+  cierre_bolsa: {mgc: "16:00", etf: "16:00", local: "15:55"}   # hora local de cada bolsa (para saber si la barra del día ya cerró)
+
+eventos_macro:                              # calendario editable; 'verificada: false' = confirmar en la fuente
+  - {fecha: "2026-10-28", hora: "13:00", evento: "Decisión de la FED (FOMC)", fuente: "federalreserve.gov", verificada: true}
+  - {fecha: "2026-10-30", hora: "", evento: "Decisión de BanRep (junta directiva)", fuente: "banrep.gov.co", verificada: false}
+  - {fecha: "2026-10-14", hora: "07:30", evento: "IPC de EE. UU. (CPI de septiembre)", fuente: "bls.gov", verificada: false}
+  - {fecha: "2026-11-06", hora: "07:30", evento: "Empleo de EE. UU. (nóminas de octubre)", fuente: "bls.gov", verificada: false}
+
+# ----------------------------- Fase 3: validación del semáforo y simulador de ligas -----------------------------
+validacion:
+  inicio: "2015-01-01"
+  horizontes: [1, 5, 10, 20]                # sesiones después de la señal (la orden se ejecuta a la apertura de la sesión siguiente)
+  grandes: [TSLA, NVDA, AAPL, MSFT, AMZN, GOOGL, META]
+  bootstrap: {n: 5000, semilla: 2026, nivel: 0.95}   # bloques de mes
+  negro_sentimiento: siempre                # supuesto de la historia sin noticias (ver ASSUMPTIONS): el sentimiento sigue negativo en el día 2
+  # Regla fijada ANTES de ver los resultados: NEGRO "muestra deriva" en acciones grandes si en TODOS estos horizontes el IC95 del retorno
+  # residual posterior queda por debajo de 0 y hay al menos n_minimo eventos. Si no, cambio_por_negro pasa a false.
+  criterio_negro: {horizontes: [5, 10], n_minimo: 20}
+  noticias:                                 # historia real de noticias (Finnhub da ≈ 1 año): sólo para contrastar el proxy
+    desde: "2025-09-29"
+    carpeta: data/cache/val_news
+    margen_dias: 7                          # se descartan los primeros días de cobertura (la ventana de 24 h aún no está completa)
+  liga:                                     # simulador de ligas (reglas oficiales; rivales sintéticos)
+    desde: "2015-01-01"                     # primera ventana de 25 sesiones
+    rivales: 5500                           # participantes sintéticos por ventana = tamaño real del campo informado por el usuario (≈ 5.500)
+    semilla: 2026
+    base_pct: supervivientes                       # campo = "top X %" contra TODO el campo; supervivientes = sólo contra los que siguen vivos
+    participantes_reales: [2000, 5500, 12000]   # el usuario informó ≈ 5.500 participantes (el del medio es el que usa el informe); los otros son sensibilidad
+    # Composición del campo rival (SUPUESTO). Los "concentrados" ponen entre peso_min y 100 % en TSLA o NVDA (mitad y mitad) y el resto en 1–3 activos.
+    escenarios:
+      - {nombre: "Campo disperso (nadie concentrado)", concentrados: 0.0, peso_min: 0.70}
+      - {nombre: "30 % concentrado en TSLA/NVDA (con 70–100 %)", concentrados: 0.30, peso_min: 0.70}
+      - {nombre: "30 % concentrado, todos con 100 % (peor caso: duplican mi cartera)", concentrados: 0.30, peso_min: 1.0}
+      - {nombre: "60 % concentrado en TSLA/NVDA (con 70–100 %)", concentrados: 0.60, peso_min: 0.70}
+    escenario_base: 1                       # posición del escenario que pide el plan ("el 30 % concentra en TSLA o NVDA")
+    paso_rapido: 40                         # --rapido: una ventana de cada 40 (prueba de humo)
+
+# ======================================================================================================
+# VIGÍA DE NOTICIAS DE LA BVC (cada 2 minutos) Y PROCESO CONTINUO EN LA NUBE
+# ======================================================================================================
+modo:
+  solo_bvc: true                            # el bot sólo RECOMIENDA acciones de la BVC (relevos, base, noticias, "qué comprar"). Lo que ya tengas de EE. UU. se sigue vigilando.
+
+vigia:                                      # proceso continuo (vigia.py): contesta el chat al instante y corre todo sin depender del "cron" de GitHub
+  duracion_max_min: 330                     # cada eslabón vive 5 h 30 min (el tope de GitHub es 6 h) y al terminar lanza el siguiente
+  monitor_cada_min: 15                      # semáforo de tu cartera (en horario de bolsa)
+  guardar_cada_s: 600                       # respaldo periódico de la memoria de titulares vistos. Lo que TÚ registras y cada aviso enviado se respaldan al instante
+  latido_h: 0                               # > 0: manda un "sigo vivo" cada tantas horas (0 = nunca; sólo avisa cuando hay algo)
+  vida_minima_s: 240                        # si un eslabón muere antes de esto, NO se relanza (evita un bucle de fallos que gaste minutos) y te avisa
+
+noticias_bvc:
+  activo: true
+  cada_s: 120                               # una ronda cada 2 minutos, las 24 horas (las empresas publican hechos relevantes también fuera del horario)
+  ventana_min: 180                          # sólo cuentan noticias publicadas en las últimas 3 horas (lo más viejo ya está en el precio)
+  umbral_alto: 0.60                         # puntaje mínimo (0–1) para considerarla de ALTO impacto y avisarte
+  umbral_negativa_sin_tener: 0.80           # mala noticia de una acción que NO tienes: sólo se avisa si es muy fuerte
+  max_por_ronda: 2
+  enfriamiento_emisor_min: 60               # no repetir avisos de la misma empresa y sentido antes de este tiempo
+  timeout_s: 10
+  agente: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+  fiabilidad: {sfc: 1.0, rss: 0.9, google: 0.85}     # la Superfinanciera es la fuente oficial; los medios pueden titular con sesgo
+  bono_varias_fuentes: 0.08                 # la misma noticia en 2 o más fuentes
+  bono_precio: 0.20                         # el precio ya se mueve en el mismo sentido (≥ z_confirma veces lo normal): es lo que de verdad confirma el impacto
+  castigo_precio_contra: 0.20               # el precio va en contra del titular
+  castigo_sin_sentido: 0.6                  # ni el texto ni el precio dicen hacia dónde empuja: se multiplica por esto (casi nunca pasa el umbral)
+  castigo_rutina: 0.6                       # anuncios de trámite (fecha de pago de una cuota, citación a asamblea…)
+  z_confirma: 1.0                           # "el precio reaccionó" = se movió al menos 1 vez su variación diaria normal frente al mercado
+  # Peso de cada tipo de noticia = 0,35 + 2 × (fracción de anuncios de ese tipo que movieron FUERTE la acción, ≥ 2 veces lo normal) en el estudio de
+  # 1.883 anuncios oficiales 2023–2026 (run_estudio_noticias.py). Un día cualquiera con un anuncio "sin tipo" la mueve fuerte el 9 % de las veces; los
+  # dividendos 5 %, calificaciones 6 %, compras/ventas 10 %, cambios en la dirección 11 %, resultados 12 %, recompras 14 %, contratos y hallazgos 19 %.
+  # Los tipos con menos de 15 casos reales (salida de la bolsa, índices, sanciones, problemas operativos, emisión, metas) y la OPA (los 24 casos medidos
+  # son casi todos trámites de ofertas ya conocidas) quedan con un valor prudente fijado a mano. Consecuencia: los tipos frecuentes NO llegan al umbral
+  # sólo con el titular; necesitan que el precio confirme.
+  pesos: {hallazgo: 0.73, opa: 0.70, deslistado: 0.70, indice: 0.70, legal: 0.70, recompra: 0.63, operativo: 0.60, resultados: 0.59, direccion: 0.57,
+          fusion: 0.55, capital: 0.55, guia: 0.55, calificacion: 0.47, analistas: 0.47, dividendo: 0.45}
+  recomendacion:
+    liquidez_min_cop_mm: 2000               # valor negociado diario mínimo (millones de COP): por debajo cuesta mucho entrar y salir
+    costo_ida_vuelta: 0.013                 # comprar + vender ≈ 1,3 % (2 comisiones de 0,2975 % + diferencia de precios). COMPRAR sólo si la evidencia lo supera
+    stop_sigmas: 1.5                        # "sal antes si cae X %": 1,5 veces su variación diaria típica…
+    stop_min: 0.03                          # …pero nunca menos de 3 %
+  estudio: {desde: "2023-10-01", horizontes: [1, 3, 5], n_minimo: 15}     # run_estudio_noticias.py: qué pasó con la acción después de anuncios parecidos
+  fuentes:
+    # Superfinanciera, "Información relevante" (SIMEV). Es la API pública que usa su propia página; la clave es la que esa página trae a la vista de todos.
+    # Si la cambian, pon la nueva aquí o en la variable de entorno SFC_API_KEY.
+    sfc: {activo: true, url: "https://www.superfinanciera.gov.co/sfcservices/SIMEV2/informacion-relevante/general/pagina", api_key: "D4p2MNknJeQbz4mipjjEKOjPL1Eb4zwq", size: 60}
+    rss:
+      - {nombre: "Valora Analitik", url: "https://www.valoraanalitik.com/feed/"}
+      - {nombre: "La República", url: "https://www.larepublica.co/rss/"}
+      - {nombre: "Portafolio", url: "https://www.portafolio.co/rss/economia.xml"}
+      - {nombre: "Portafolio (negocios)", url: "https://www.portafolio.co/rss/negocios.xml"}
+      - {nombre: "Semana", url: "https://www.semana.com/arc/outboundfeeds/rss/category/economia/?outputType=xml"}
+      - {nombre: "El Tiempo", url: "https://www.eltiempo.com/rss/economia.xml"}
+      - {nombre: "El Colombiano", url: "https://www.elcolombiano.com/rss/negocios.xml"}
+    google:                                 # una búsqueda por ronda, rotando (cada grupo se revisa cada 6 minutos)
+      activo: true
+      cuando: "3h"
+      consultas:
+        - 'Ecopetrol OR Bancolombia OR "Grupo Cibest" OR "Grupo Argos" OR "Cementos Argos" OR "Grupo Sura"'
+        - '"Interconexión Eléctrica" OR "Grupo Energía Bogotá" OR Celsia OR "Grupo Éxito" OR Nutresa OR Promigas OR Terpel'
+        - '"Mineros S.A." OR Corficolombiana OR "Banco de Bogotá" OR "Grupo Aval" OR Canacol OR "Enka de Colombia" OR "PEI" inmobiliarias'
+  # Emisores de la BVC: cómo los nombran los titulares (alias), con qué razón social aparecen en la Superfinanciera (sfc) y su código allá (sfc_id: tipo, código).
+  # ambiguo: true = el nombre es una palabra corriente; sólo cuenta si el titular habla de bolsa (acción, utilidad, dividendo…).
+  emisores:
+    - {nombre: Ecopetrol, tickers: [ECOPETROL], alias: [ecopetrol], sfc: ["ecopetrol s.a."], sfc_id: [260, 36]}
+    - {nombre: "Bancolombia (Grupo Cibest)", tickers: [PFBCOLOM, BCOLOMBIA], alias: [bancolombia, grupo cibest, cibest], sfc: ["grupo cibest s.a.", "bancolombia s.a."], sfc_id: [66, 66]}
+    - {nombre: Grupo Argos, tickers: [GRUPOARGOS, PFGRUPOARG], alias: [grupo argos], sfc: ["grupo argos s.a."], sfc_id: [66, 58]}
+    - {nombre: Cementos Argos, tickers: [CEMARGOS, PFCEMARGOS], alias: [cementos argos, cemargos], sfc: ["cementos argos s.a."], sfc_id: [43, 5]}
+    - {nombre: Grupo Sura, tickers: [GRUPOSURA, PFSURA], alias: [grupo sura, gruposura], sfc: ["grupo de inversiones suramericana"], sfc_id: [142, 2]}
+    - {nombre: ISA, tickers: [ISA], alias: [interconexion electrica, isa], sfc: ["interconexion electrica s.a."], sfc_id: [260, 34], ambiguo: true}
+    - {nombre: "Grupo Energía Bogotá", tickers: [GEB], alias: [grupo energia bogota, geb], sfc: ["grupo energia bogota s.a."], sfc_id: [260, 43]}
+    - {nombre: Celsia, tickers: [CELSIA], alias: [celsia], sfc: ["celsia s.a."], sfc_id: [66, 61]}
+    - {nombre: "Grupo Éxito", tickers: [EXITO], alias: [grupo exito, almacenes exito, exito], sfc: ["almacenes exito s.a."], sfc_id: [58, 6], ambiguo: true}
+    - {nombre: Nutresa, tickers: [NUTRESA], alias: [nutresa], sfc: ["grupo nutresa s.a."], sfc_id: [66, 32]}
+    - {nombre: Promigas, tickers: [PROMIGAS], alias: [promigas], sfc: ["promigas s.a."], sfc_id: [261, 4]}
+    - {nombre: Terpel, tickers: [TERPEL], alias: [terpel], sfc: ["organizacion terpel s.a."], sfc_id: [53, 22]}
+    - {nombre: Mineros, tickers: [MINEROS], alias: [mineros], sfc: ["mineros s.a."], sfc_id: [30, 3], ambiguo: true}
+    - {nombre: Corficolombiana, tickers: [CORFICOLCF, PFCORFICOL], alias: [corficolombiana], sfc: ["corporacion financiera colombiana s.a."], sfc_id: [2, 11]}
+    - {nombre: "Banco de Bogotá", tickers: [BOGOTA], alias: [banco de bogota], sfc: ["banco de bogota"]}
+    - {nombre: Grupo Aval, tickers: [PFAVAL, AVAL], alias: [grupo aval], sfc: ["grupo aval acciones y valores"], sfc_id: [142, 1]}
+    - {nombre: "Bolsa de Valores de Colombia", tickers: [BVC], alias: [], sfc: ["bolsa de valores de colombia s.a."], sfc_id: [82, 4]}
+    - {nombre: Canacol, tickers: [CNEC], alias: [canacol], sfc: ["canacol energy"], sfc_id: [106, 6]}
+    - {nombre: Enka, tickers: [ENKA], alias: [enka], sfc: ["enka de colombia"], sfc_id: [39, 21]}
+    - {nombre: BAC Holding (BHI), tickers: [BHI], alias: [bac holding, bhi], sfc: ["bac holding international"], sfc_id: [141, 3]}
+    - {nombre: PEI, tickers: [PEI], alias: [pei], sfc: ["p.a. estrategias inmobiliarias"], sfc_id: [92, 170], ambiguo: true}

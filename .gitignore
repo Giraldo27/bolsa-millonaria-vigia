@@ -1,0 +1,33 @@
+# Secretos: NUNCA subir a git
+.env
+*.env
+!.env.example
+
+# Caché, salidas y entornos
+__pycache__/
+*.pyc
+.pytest_cache/
+data/cache/
+outputs/
+reports/qa/
+*.log
+alertas.log
+
+# Datos personales (posición y rentabilidad): NUNCA en la rama principal. En la nube viven en la rama privada 'estado' (ver nube/sincronizar_estado.py).
+data/state.json
+data/state.json.bak
+data/telegram_offset.json
+data/noticias_bvc.json
+_estado/
+
+# No hace falta en la nube (pesados o personales)
+reports/*.html
+legacy/
+app_streamlit*.log
+data/*.lock
+
+
+# Basura de OneDrive/Windows
+desktop.ini
+estrategia_resultado.py/
+

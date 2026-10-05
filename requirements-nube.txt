@@ -1,0 +1,12 @@
+# Dependencias mínimas del bot en la nube (GitHub Actions). El análisis histórico (scipy, plotly, jinja2) NO se necesita para el monitor, el radar ni el bot.
+yfinance>=1.0
+pandas>=2.2
+numpy>=1.26
+requests>=2.31
+PyYAML>=6.0
+python-dotenv>=1.0
+python-telegram-bot>=22.0
+vaderSentiment>=3.3
+pyarrow>=15
+lxml>=5.0
+cryptography>=42                 # cifrado del estado cuando el repositorio es público (nube/sincronizar_estado.py)

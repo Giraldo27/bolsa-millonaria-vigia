@@ -1,0 +1,31 @@
+name: Resucitar el vigía (respaldo)
+
+# Red de seguridad: si la cadena del vigía se rompe (GitHub mata la máquina sin dejar lanzar el siguiente eslabón), esto lo vuelve a encender.
+# Depende del "cron" de GitHub, que no es fiable (por eso el vigía NO depende de él): si el cron no se dispara, simplemente no hace nada.
+# No lo resucita si TÚ lo apagaste (última ejecución cancelada a mano).
+on:
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  resucitar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Encender el vigía si no hay ninguno corriendo
+        run: |
+          vivos=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow vigia.yml --limit 5 --json status --jq '[.[] | select(.status != "completed")] | length')
+          ultima=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow vigia.yml --limit 1 --json conclusion --jq '.[0].conclusion // ""')
+          # cuánto vivió el último (segundos): si murió casi al arrancar es un fallo de fondo y relanzarlo cada media hora sólo gastaría minutos
+          duro=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow vigia.yml --limit 1 --json startedAt,updatedAt --jq '.[0] | ((.updatedAt | fromdate) - (.startedAt | fromdate))' || true)
+          echo "vigías sin terminar: $vivos · última conclusión: $ultima · vivió ${duro:-0} s"
+          if [ "$vivos" = "0" ] && [ "$ultima" != "cancelled" ] && [ "${duro:-0}" -ge 600 ]; then
+            gh workflow run vigia.yml --repo "$GITHUB_REPOSITORY" --ref "${{ github.event.repository.default_branch }}"
+            echo "vigía relanzado"
+          fi

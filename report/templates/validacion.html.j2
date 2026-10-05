@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bolsa Millonaria 2026 — Validación del semáforo y de la Regla Maestra</title>
+<script>{{ plotly_js|safe }}</script>
+<style>
+:root{--bg:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#898781;--line:#e1e0d9;--gain:#006300;--gainbg:#e6f4e6;--loss:#b32525;--lossbg:#fbeaea;
+--warn:#8a5a00;--warnbg:#fff4d6;--accent:#2a78d6;--shadow:0 1px 2px rgba(0,0,0,.06)}
+@media (prefers-color-scheme:dark){:root{--bg:#0d0d0d;--surface:#1a1a19;--ink:#fff;--ink2:#c3c2b7;--muted:#898781;--line:#2c2c2a;--gain:#37c837;--gainbg:#12301a;--loss:#ff7b7b;--lossbg:#3a1616;
+--warn:#fab219;--warnbg:#3a2e08;--accent:#3987e5;--shadow:none}}
+*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:64px}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:var(--accent)}code{overflow-wrap:anywhere;font-size:.92em}
+.layout{display:grid;grid-template-columns:240px minmax(0,1fr);max-width:1320px;margin:0 auto}
+nav.toc{position:sticky;top:0;align-self:start;height:100vh;overflow:auto;padding:20px 12px 20px 20px;border-right:1px solid var(--line);font-size:14px}
+nav.toc b{display:block;margin-bottom:8px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+nav.toc a{display:block;padding:5px 8px;border-radius:6px;color:var(--ink2);text-decoration:none}
+nav.toc a:hover{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+main{padding:24px 24px 80px;min-width:0}
+section{margin:0 0 44px}
+h1{font-size:clamp(26px,4vw,38px);line-height:1.15;margin:0 0 6px}
+h2{font-size:clamp(21px,3vw,27px);margin:0 0 12px;padding-top:6px;border-top:2px solid var(--line)}
+h3{font-size:18px;margin:22px 0 8px}
+p{margin:.5em 0}.muted{color:var(--muted)}.small{font-size:14px}
+.card,.box{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:var(--shadow)}
+.verdict{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));margin:16px 0}
+.sem{display:flex;gap:12px;align-items:flex-start}.sem .dot{font-size:34px;line-height:1}
+.sem h3{margin:0 0 4px;font-size:17px}
+.grid2{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+ol.big,ul.big{padding-left:22px}.big li{margin:8px 0}
+.pos{color:var(--gain);font-weight:600}.neg{color:var(--loss);font-weight:600}.neu{color:var(--ink2)}
+.tip{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:var(--line);color:var(--ink2);font-size:12px;cursor:help;position:relative;flex:none;font-style:normal;font-weight:600}
+.tip:hover::after,.tip:focus::after{content:attr(data-tip);position:absolute;z-index:20;left:0;top:24px;width:min(300px,80vw);padding:10px 12px;background:var(--ink);color:var(--bg);border-radius:8px;font-size:13px;line-height:1.45;font-weight:400}
+details{margin:8px 0;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+details summary{cursor:pointer;padding:9px 12px;font-weight:600;font-size:14px}
+details .in{padding:2px 14px 12px;font-size:15px;color:var(--ink2)}
+.chart{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px;overflow:hidden}
+.warnbox{background:var(--warnbg);border:1px solid var(--warn);border-radius:10px;padding:12px 14px;margin:12px 0;color:var(--ink)}
+.warnbox b:first-child{color:var(--warn)}
+.okbox{background:var(--gainbg);border:1px solid var(--gain);border-radius:10px;padding:12px 14px;margin:12px 0;color:var(--ink)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface);margin:8px 0}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child,td:first-child{text-align:left}th{background:var(--bg);font-size:13px;color:var(--ink2)}
+td.l,th.l{text-align:left;white-space:normal}
+tbody tr:hover td{background:rgba(137,135,129,.1)}
+dl.gl dt{font-weight:700;margin-top:12px}dl.gl dd{margin:2px 0 0;color:var(--ink2)}
+.badge{font-size:12px;background:var(--line);padding:2px 8px;border-radius:99px;color:var(--ink2)}
+footer{color:var(--muted);font-size:13px;padding:20px 24px 40px;max-width:1320px;margin:0 auto}
+@media (max-width:900px){.layout{display:block}
+nav.toc{position:sticky;top:0;z-index:30;height:auto;display:flex;gap:6px;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);background:var(--bg);padding:8px 12px;white-space:nowrap}
+nav.toc b{display:none}nav.toc a{padding:6px 10px;border:1px solid var(--line);border-radius:99px;font-size:13px}
+main{padding:16px 14px 60px}th,td{padding:7px 8px}}
+</style>
+</head>
+<body>
+{% set f = fmt %}
+{% macro tip(t) %}<i class="tip" tabindex="0" data-tip="{{ t }}">ⓘ</i>{% endmacro %}
+{% macro fig(html, how, means) %}
+<div class="chart">{{ html|safe }}</div>
+<details open><summary>📖 Cómo leer este gráfico</summary><div class="in">{{ how|safe }}</div></details>
+<details open><summary>💡 Qué significa</summary><div class="in">{{ means|safe }}</div></details>
+{% endmacro %}
+{% macro warn(t) %}<div class="warnbox"><b>⚠️ Cuidado.</b> {{ t|safe }}</div>{% endmacro %}
+{% macro filas_ev(rows) %}
+{% for r in rows %}<tr><td>{{ r.h }} {{ 'sesión' if r.h == 1 else 'sesiones' }}</td><td>{{ r.n }}</td><td class="{{ f.cls(r.media) }}">{{ f.pct(r.media,2,True) }}</td>
+<td>{{ f.pct(r.ic_lo,2,True) }} a {{ f.pct(r.ic_hi,2,True) }}</td><td>{{ f.num(r.p,3) }}</td><td>{{ f.pct(r.pos,0) }}</td><td class="{{ f.cls(r.salir) }}">{{ f.pct(r.salir,2,True) }}</td></tr>{% endfor %}
+{% endmacro %}
+{% macro cabecera_ev() %}<thead><tr><th>Horizonte</th><th>Eventos</th><th>Retorno residual medio {{ tip("Lo que rindió la acción después de la señal, restando lo que explica el Nasdaq-100 (beta × índice). 0 % = ni sube ni baja más que el mercado.") }}</th><th>Intervalo 95 % {{ tip("Rango plausible del verdadero promedio (bootstrap por bloques de mes). Si incluye el 0, no se puede afirmar que el efecto exista.") }}</th><th>p-valor {{ tip("Probabilidad de ver algo así por pura casualidad si en realidad no hubiera efecto. Menor que 0,05 = difícil de atribuir al azar.") }}</th><th>% positivos</th><th>Ganancia de salir {{ tip("= −retorno residual − 1,3 % (costo de cambiar de activo). Sólo sería positiva si salir de la acción compensara lo que ésta pierde después de la señal Y el costo del cambio.") }}</th></tr></thead>{% endmacro %}
+
+<div class="layout">
+<nav class="toc" aria-label="Índice">
+<b>Contenido</b>
+<a href="#s1">1 · Veredicto</a><a href="#s2">2 · Cómo se probó</a><a href="#s3">3 · ¿Qué pasa después de cada color?</a>
+<a href="#s4">4 · ¿Resiste los cambios de supuestos?</a><a href="#s5">5 · Noticias reales vs. proxy</a><a href="#s6">6 · Simulador de ligas</a>
+<a href="#s7">7 · Lo que NO sabemos</a><a href="#s8">8 · Qué cambió en el sistema</a><a href="#s9">9 · Glosario</a>
+</nav>
+<main>
+
+<section id="s1">
+<h1>¿Funciona el semáforo? ¿Sirve la Regla Maestra?</h1>
+<p class="muted small">Validación generada el {{ hoy.strftime('%d/%m/%Y') }} · Datos de Yahoo Finance de {{ f_ini }} a {{ f_fin }} · {{ n_acciones }} acciones MGC · {{ n_ventanas }} concursos simulados de {{ n_ses }} sesiones</p>
+<div class="verdict">
+{% for v in veredictos %}
+ <div class="card sem"><div class="dot">{{ v.emoji }}</div><div><h3>{{ v.pregunta }}</h3><p>{{ v.texto|safe }}</p></div></div>
+{% endfor %}
+</div>
+<div class="grid2">
+<div class="box"><h3>Los hallazgos principales</h3><ol class="big">
+{% for h in hallazgos %}<li>{{ h|safe }}</li>{% endfor %}
+</ol></div>
+<div class="box"><h3>Lo que hice y lo que debes hacer</h3><ol class="big">
+{% for a in acciones %}<li>{{ a|safe }}</li>{% endfor %}
+</ol></div>
+</div>
+{{ warn("Esto es historia, no una promesa. Entre 2015 y 2026 las acciones grandes (sobre todo TSLA y NVDA) tuvieron rendimientos extraordinarios que hoy conocemos y que nadie podía asegurar de antemano. Las cifras de abajo sirven para comparar reglas entre sí, no para prometerte un resultado el 6 de noviembre.") }}
+</section>
+
+<section id="s2">
+<h2>2 · Cómo se probó (en palabras sencillas)</h2>
+<div class="grid2">
+<div class="box"><h3>Estudio de eventos</h3>
+<p>Tomé <b>{{ n_acciones }} acciones del universo MGC</b> y todos los días entre {{ f_ini }} y {{ f_fin }}. Cada día calculé el color del semáforo <b>con el mismo código que usa el bot</b> (una prueba automática confirma que el cálculo masivo coincide con el real, día por día). Luego miré qué hizo la acción <b>después</b> de cada color.</p>
+<ul class="big">
+<li><b>Sin mirar al futuro:</b> la señal es el cierre del día; la orden se da esa noche y se ejecuta a la <b>apertura del día siguiente</b>.</li>
+<li><b>Retorno residual:</b> lo que rinde la acción menos lo que explica el Nasdaq-100. Así no confundimos "la acción se recuperó" con "el mercado subió".</li>
+<li><b>Intervalos de confianza por bloques de mes:</b> las caídas se agrupan en crisis; mezclar días sueltos daría una seguridad falsa.</li>
+</ul></div>
+<div class="box"><h3>Simulador de ligas</h3>
+<p>Cada ventana histórica de {{ n_ses }} sesiones es un concurso completo con las <b>reglas oficiales</b>: cortes de {{ cortes_txt }} y final #1. En cada concurso sorteo {{ rivales }} rivales sintéticos y juego tres estrategias:</p>
+<ul class="big"><li><b>(a)</b> mantener la base ({{ base_txt }}).</li><li><b>(b)</b> base + Regla Maestra (cambia sólo si el múltiplo de movimiento esperado compensa el costo).</li><li><b>(c)</b> (b) + cambiar también cuando mi activo está en NEGRO.</li></ul>
+<p>Las tres pagan los mismos costos reales: comisión, spread, 1,3 % por cada cambio y las micro-compras de actividad.</p></div>
+</div>
+{{ warn("<b>Sin historia de noticias.</b> Finnhub sólo entrega noticias desde el " ~ primera_noticia ~ " (≈ 1 año) y no hay clave de Alpha Vantage. Por eso, en la historia larga, la “mala noticia” se reemplaza por el respaldo del propio sistema: volumen ≥ 2× el normal junto con un hueco de apertura de −1σ o más. Es una aproximación (sección 5 mide qué tan buena es). Además, NEGRO supone que el sentimiento sigue negativo en el día 2; la sección 4 prueba qué pasa si ese supuesto cambia.") }}
+</section>
+
+<section id="s3">
+<h2>3 · ¿Qué pasa después de cada color?</h2>
+<p>Pregunta central: <b>¿después de NEGRO la caída sigue, y después de AMARILLO la acción rebota?</b> Si NEGRO anticipara más caídas, tendría sentido salirse de la acción; si AMARILLO rebota, vender por susto sería un error.</p>
+<h3>Acciones grandes (TSLA, NVDA, AAPL, MSFT, AMZN, GOOGL, META)</h3>
+{{ fig(g_ev_grandes,
+ "Cada grupo de barras es un horizonte (cuántas sesiones después de la señal). La altura es el retorno residual promedio; la línea gris vertical es el intervalo de confianza del 95 %. Barra por encima de 0 = la acción rindió más que el mercado después de esa señal.",
+ texto_graf_grandes) }}
+<div class="grid2">
+<div><h3>Después de NEGRO <span class="badge">{{ neg_g[0].n }} eventos</span></h3><div class="tablewrap"><table>{{ cabecera_ev() }}<tbody>{{ filas_ev(neg_g) }}</tbody></table></div></div>
+<div><h3>Después de AMARILLO <span class="badge">{{ amar_g[0].n }} eventos</span></h3><div class="tablewrap"><table>{{ cabecera_ev() }}<tbody>{{ filas_ev(amar_g) }}</tbody></table></div></div>
+</div>
+<div class="box" style="margin-top:12px"><b>Respuesta:</b> {{ resp_negro|safe }}<br><br>{{ resp_amarillo|safe }}</div>
+<h3>Quitando la tendencia normal de cada acción</h3>
+<p>TSLA, NVDA y compañía subieron mucho en promedio durante estos años; cualquier señal parecería “buena” sólo por eso. Este segundo gráfico resta a cada acción su propio rendimiento promedio de todos los días.</p>
+{{ fig(g_ev_grandes_x,
+ "Igual que el anterior, pero cada retorno se mide como diferencia frente al rendimiento promedio de esa misma acción en cualquier día normal.",
+ texto_graf_x) }}
+<h3>El resto del universo MGC (15 acciones menos famosas)</h3>
+{{ fig(g_ev_resto,
+ "Mismo gráfico para las acciones que no son las 7 grandes: bancos, consumo, salud, Petrobras, Nu, Uber, etc.",
+ texto_graf_resto) }}
+<div class="grid2">
+<div><h3>Resto · después de NEGRO <span class="badge">{{ neg_r[0].n }} eventos</span></h3><div class="tablewrap"><table>{{ cabecera_ev() }}<tbody>{{ filas_ev(neg_r) }}</tbody></table></div></div>
+<div><h3>Resto · después de ROJO <span class="badge">{{ rojo_r[0].n }} eventos</span></h3><div class="tablewrap"><table>{{ cabecera_ev() }}<tbody>{{ filas_ev(rojo_r) }}</tbody></table></div></div>
+</div>
+</section>
+
+<section id="s4">
+<h2>4 · ¿La conclusión resiste cambios de supuestos?</h2>
+<h3>Distintos grupos de acciones</h3>
+<div class="tablewrap"><table><thead><tr><th class="l">Grupo · señal</th><th>Eventos</th><th>5 sesiones</th><th>10 sesiones</th><th>20 sesiones</th></tr></thead><tbody>
+{% for r in grupos_rows %}<tr><td class="l">{{ r.nombre }}</td><td>{{ r.n }}</td>{% for c in r.celdas %}<td class="{{ f.cls(c.media) }}">{{ f.pct(c.media,2,True) }} <span class="muted small">[{{ f.pct(c.lo,1,True) }}; {{ f.pct(c.hi,1,True) }}]</span></td>{% endfor %}</tr>{% endfor %}
+</tbody></table></div>
+<p class="small muted">Retorno residual medio y, entre corchetes, el intervalo del 95 %. “Sin TSLA/NVDA” quita las dos acciones que más subieron en la muestra.</p>
+<h3>Distintas formas de reconstruir la “mala noticia” y el sentimiento del día 2</h3>
+<p>Como no hay noticias de 2015 a 2025, probé cuatro versiones del supuesto. Si la conclusión depende de una sola, no vale.</p>
+<div class="tablewrap"><table><thead><tr><th class="l">Versión del supuesto</th><th>Señal</th><th>Eventos</th><th>5 sesiones</th><th>10 sesiones</th><th>20 sesiones</th></tr></thead><tbody>
+{% for r in rob_rows %}<tr><td class="l">{{ r.nombre }}</td><td>{{ r.clase }}</td><td>{{ r.n }}</td>{% for c in r.celdas %}<td class="{{ f.cls(c.media) }}">{{ f.pct(c.media,2,True) }} <span class="muted small">[{{ f.pct(c.lo,1,True) }}; {{ f.pct(c.hi,1,True) }}]</span></td>{% endfor %}</tr>{% endfor %}
+</tbody></table></div>
+<div class="box"><b>Qué significa:</b> {{ resp_robustez|safe }}</div>
+<h3>El caso que más importa: TSLA</h3>
+{{ fig(g_negro_tsla,
+ "Cada barra es una vez que TSLA quedó en NEGRO desde 2015. La altura es lo que rindió TSLA, frente al mercado, en las 10 sesiones siguientes a esa señal. Verde = subió; rojo = siguió cayendo.",
+ texto_graf_tsla) }}
+<div class="tablewrap"><table><thead><tr><th class="l">Fecha en que quedó en NEGRO</th><th>Volumen ese día vs. normal</th><th>Retorno residual a 10 sesiones</th></tr></thead><tbody>
+{% for r in tsla_eventos %}<tr><td class="l">{{ r.fecha.strftime('%d/%m/%Y') }}</td><td>{{ f.num(r.vol_rel,1) }}×</td><td class="{{ f.cls(r.ar) }}">{{ f.pct(r.ar,1,True) }}</td></tr>{% endfor %}
+</tbody></table></div>
+</section>
+
+<section id="s5">
+<h2>5 · Noticias reales frente al respaldo (proxy)</h2>
+{% if noticias %}
+<p>Con las noticias reales de Finnhub ({{ noticias.tickers|join(', ') }}; desde el <b>{{ noticias.primera_noticia }}</b> hasta el {{ noticias.ultima_sesion }}; sentimiento calculado con {{ noticias.motor|upper }}) comparé, día por día, el semáforo con noticias reales contra el semáforo con el respaldo de volumen y hueco de apertura.</p>
+<div class="tablewrap"><table><thead><tr><th class="l">Medida</th><th>Resultado</th><th class="l">Qué significa</th></tr></thead><tbody>
+<tr><td class="l">Días comparados</td><td>{{ f.num(noticias.dias,0) }}</td><td class="l">Acciones grandes × sesiones con noticias.</td></tr>
+<tr><td class="l">Caídas propias con volumen alto</td><td>{{ noticias.propia_con_volumen }}</td><td class="l">Días en que el precio y el volumen ya cumplían las condiciones de ROJO.</td></tr>
+<tr><td class="l">… de ellas, con noticia negativa real</td><td>{{ noticias.con_noticia_negativa }} ({{ f.pct(noticias.pct_con_noticia,0) }})</td><td class="l">Qué fracción de las caídas fuertes tenía de verdad una mala noticia según el sistema.</td></tr>
+<tr><td class="l">ROJO con noticias reales</td><td>{{ noticias.rojo_real }}</td><td class="l">Lo que el bot habría marcado ROJO con noticias.</td></tr>
+<tr><td class="l">ROJO con el respaldo</td><td>{{ noticias.rojo_proxy }}</td><td class="l">Lo que habría marcado sin noticias.</td></tr>
+<tr><td class="l">Coinciden</td><td>{{ noticias.ambos }}</td><td class="l">ROJO por ambos métodos.</td></tr>
+<tr><td class="l">Sólo con noticias reales / sólo con respaldo</td><td>{{ noticias.solo_real }} / {{ noticias.solo_proxy }}</td><td class="l">El respaldo se pierde {{ noticias.solo_real }} alertas reales y inventa {{ noticias.solo_proxy }}.</td></tr>
+</tbody></table></div>
+<div class="box"><b>Qué significa:</b> {{ resp_noticias|safe }}</div>
+{{ warn("Es sólo un año y pocas alertas: sirve para ver si el respaldo es razonable, no para medir con precisión cuánto acierta. Con tan pocos eventos no se puede repetir el estudio de eventos con noticias reales.") }}
+{% else %}
+<div class="warnbox"><b>Sin cruce disponible.</b> No se corrió el cruce con noticias reales (falta la descarga de Finnhub). Ejecuta <code>python run_validacion.py noticias</code>.</div>
+{% endif %}
+</section>
+
+<section id="s6">
+<h2>6 · Simulador de ligas con las reglas oficiales</h2>
+<p>{{ n_ventanas }} concursos completos (uno por cada día de inicio entre {{ liga_ini }} y {{ liga_fin }}), cada uno con {{ rivales }} rivales sintéticos que compran 2–4 activos al azar y mantienen. {{ texto_base_pct|safe }}</p>
+<h3>Escenario base: {{ esc_base_nombre }}</h3>
+{{ fig(g_cortes,
+ "Cada grupo de barras es un corte del viernes; la altura es la probabilidad de seguir vivo después de pasar ese corte y todos los anteriores. Las líneas grises son intervalos del 95 % (por bloques de mes). Un participante cualquiera pasaría con " ~ azar_txt ~ ".",
+ texto_graf_cortes) }}
+<div class="tablewrap"><table><thead><tr><th class="l">Estrategia</th><th>Corte 1</th><th>Corte 2</th><th>Corte 3</th><th>Corte 4 (clave)</th>{% for n in n_reales %}<th>P(top 30) con {{ f.num(n,0) }} part.</th><th>P(#1) con {{ f.num(n,0) }} part.</th>{% endfor %}<th>Rentab. mediana</th><th>Cambia de activo</th></tr></thead><tbody>
+{% for r in filas_base %}<tr><td class="l">{{ r.nombre }}</td>{% for p in r.pasa %}<td>{{ f.pct(p,1) }}</td>{% endfor %}{% for n in n_reales %}<td>{{ f.pct(r.top30[n],1) }}</td><td>{{ f.pct(r.p1[n],1) }}</td>{% endfor %}<td class="{{ f.cls(r.ret_mediana) }}">{{ f.pct(r.ret_mediana,1,True) }}</td><td>{{ f.pct(r.cambios,0) }} de los concursos</td></tr>{% endfor %}
+</tbody></table></div>
+<p class="small muted">“P(top 30)” = probabilidad de terminar entre los 30 primeros de Diamante; “P(#1)”, de terminar primero. Dependen del número de participantes reales, que no se conoce: por eso hay una columna por tamaño supuesto.</p>
+<h3>¿La Regla Maestra mejora a “sólo mantener”?</h3>
+<p>Comparación pareada: en cada concurso, la diferencia entre dos estrategias jugando con exactamente los mismos rivales. Si el intervalo incluye 0, <b>no hay mejora demostrada</b>.</p>
+<div class="tablewrap"><table><thead><tr><th class="l">Comparación</th><th>Medida</th><th>Diferencia media</th><th>Intervalo 95 %</th><th>Veredicto</th></tr></thead><tbody>
+{% for r in comparaciones %}<tr><td class="l">{{ r.comparacion }}</td><td class="l">{{ r.medida }}</td><td class="{{ f.cls(r.dif) }}">{{ f.pct(r.dif,2,True) }}</td><td>{{ f.pct(r.lo,2,True) }} a {{ f.pct(r.hi,2,True) }}</td><td>{{ r.veredicto }}</td></tr>{% endfor %}
+</tbody></table></div>
+<div class="box"><b>Qué significa:</b> {{ resp_liga|safe }}</div>
+<h3>¿Y si los rivales son distintos?</h3>
+{{ fig(g_escenarios,
+ "Cada grupo de barras es una composición distinta del campo rival. La altura es la probabilidad de pasar los cuatro cortes.",
+ texto_graf_escenarios) }}
+<div class="tablewrap"><table><thead><tr><th class="l">Escenario de rivales</th><th class="l">Estrategia</th><th>Corte 1</th><th>Corte 2</th><th>Corte 3</th><th>Corte 4</th><th>P(top 30) con {{ f.num(n_reales[1],0) }}</th><th>P(#1) con {{ f.num(n_reales[1],0) }}</th></tr></thead><tbody>
+{% for r in filas_esc %}<tr><td class="l">{{ r.escenario }}</td><td class="l">{{ r.nombre }}</td>{% for p in r.pasa %}<td>{{ f.pct(p,1) }}</td>{% endfor %}<td>{{ f.pct(r.top30,1) }}</td><td>{{ f.pct(r.p1,1) }}</td></tr>{% endfor %}
+</tbody></table></div>
+<h3>Cómo se mide “el mejor X %”</h3>
+<p>{{ texto_medida|safe }}</p>
+<div class="tablewrap"><table><thead><tr><th class="l">Medida del corte</th><th class="l">Estrategia</th><th>Corte 1</th><th>Corte 2</th><th>Corte 3</th><th>Corte 4</th></tr></thead><tbody>
+{% for r in filas_sup %}<tr><td class="l">{{ r.base }}</td><td class="l">{{ r.nombre }}</td>{% for p in r.pasa %}<td>{{ f.pct(p,1) }}</td>{% endfor %}</tr>{% endfor %}
+</tbody></table></div>
+{% if bases_rows %}
+<h3>¿Y si la base fuera otra acción? (BVC, EE. UU. y ETF)</h3>
+<p>Misma simulación, mismos rivales en cada concurso, pero mantener <b>cada</b> acción del universo en lugar de {{ base_tk }}. Así se ve si alguna habría dado mejores probabilidades.</p>
+{{ fig(g_bases,
+ "Cada barra es una acción usada como base; la altura es el porcentaje de concursos en que habría seguido viva hasta el corte 3. La azul es " ~ base_tk ~ ".",
+ texto_bases) }}
+<div class="tablewrap"><table><thead><tr><th>Puesto</th><th class="l">Acción como base</th><th>Corte 1</th><th>Corte 2</th><th>Corte 3</th><th>Corte 4</th><th>P(top 30) con {{ f.num(n_reales[1],0) }}</th><th>P(#1) con {{ f.num(n_reales[1],0) }}</th><th>Rentab. mediana</th><th>Peor 10 %</th><th>Mejor 10 %</th><th>Pierde dinero</th></tr></thead><tbody>
+{% for r in bases_rows %}<tr{% if r.es_base %} style="font-weight:700"{% endif %}><td>{{ r.puesto }}</td><td class="l">{{ r.base }}{% if r.es_base %} (tu base){% endif %}</td><td>{{ f.pct(r.pasa1,1) }}</td><td>{{ f.pct(r.pasa2,1) }}</td><td>{{ f.pct(r.pasa3,1) }}</td><td>{{ f.pct(r.pasa4,2) }}</td><td>{{ f.pct(r.top30,2) }}</td><td>{{ f.pct(r.p1,2) }}</td><td class="{{ f.cls(r.ret_mediana) }}">{{ f.pct(r.ret_mediana,1,True) }}</td><td class="{{ f.cls(r.ret_p10) }}">{{ f.pct(r.ret_p10,1,True) }}</td><td class="{{ f.cls(r.ret_p90) }}">{{ f.pct(r.ret_p90,1,True) }}</td><td>{{ f.pct(r.pct_pierde,0) }}</td></tr>{% endfor %}
+</tbody></table></div>
+{% if bases_rows0 %}
+<h4>El mismo estudio sin rivales concentrados en TSLA/NVDA</h4>
+<p>{{ texto_bases0|safe }}</p>
+<div class="tablewrap"><table><thead><tr><th>Puesto</th><th class="l">Acción como base</th><th>Corte 1</th><th>Corte 2</th><th>Corte 3</th><th>Corte 4</th><th>Rentab. mediana</th><th>Pierde dinero</th></tr></thead><tbody>
+{% for r in bases_rows0 %}<tr{% if r.es_base %} style="font-weight:700"{% endif %}><td>{{ r.puesto }}</td><td class="l">{{ r.base }}{% if r.es_base %} (tu base){% endif %}</td><td>{{ f.pct(r.pasa1,1) }}</td><td>{{ f.pct(r.pasa2,1) }}</td><td>{{ f.pct(r.pasa3,1) }}</td><td>{{ f.pct(r.pasa4,2) }}</td><td class="{{ f.cls(r.ret_mediana) }}">{{ f.pct(r.ret_mediana,1,True) }}</td><td>{{ f.pct(r.pct_pierde,0) }}</td></tr>{% endfor %}
+</tbody></table></div>
+{% endif %}
+{% endif %}
+<h3>Depende mucho del año</h3>
+{{ fig(g_anio,
+ "Cada barra es un año de inicio: el porcentaje de concursos que empiezan ese año en los que mantener la base habría pasado los cuatro cortes.",
+ texto_graf_anio) }}
+<h3>Cómo termina cada concurso</h3>
+{{ fig(g_retornos,
+ "Distribución de la rentabilidad final de las 25 sesiones. Más a la derecha = más ganancia. La zona de la izquierda son concursos en que se pierde dinero.",
+ texto_graf_retornos) }}
+<h3>Las ventanas del 5 de octubre de cada año</h3>
+<div class="tablewrap"><table><thead><tr><th>Año</th><th>Mantener la base</th><th>Mediana del campo</th><th>Mejor del campo</th><th>Pasa corte 1</th><th>Pasa corte 4</th></tr></thead><tbody>
+{% for r in temporada %}<tr><td>{{ r.anio }}</td><td class="{{ f.cls(r.ret) }}">{{ f.pct(r.ret,1,True) }}</td><td class="{{ f.cls(r.med) }}">{{ f.pct(r.med,1,True) }}</td><td class="{{ f.cls(r.mejor) }}">{{ f.pct(r.mejor,1,True) }}</td><td>{{ 'sí' if r.p1 else 'no' }}</td><td>{{ 'sí' if r.p4 else 'no' }}</td></tr>{% endfor %}
+</tbody></table></div>
+<p class="small muted">Son las ventanas que empiezan en los primeros días de octubre de cada año: el mismo calendario del concurso, pero con precios de años anteriores.</p>
+</section>
+
+<section id="s7">
+<h2>7 · Lo que esta validación NO puede decir</h2>
+<ul class="big">
+{% for l in limites %}<li>{{ l|safe }}</li>{% endfor %}
+</ul>
+</section>
+
+<section id="s8">
+<h2>8 · Qué cambió en el sistema por esta validación</h2>
+<div class="tablewrap"><table><thead><tr><th class="l">Cambio</th><th class="l">Por qué</th></tr></thead><tbody>
+{% for c in cambios %}<tr><td class="l">{{ c.cambio|safe }}</td><td class="l">{{ c.por_que|safe }}</td></tr>{% endfor %}
+</tbody></table></div>
+</section>
+
+<section id="s9">
+<h2>9 · Glosario</h2>
+<dl class="gl">
+<dt>Retorno residual</dt><dd>Lo que rinde una acción después de restar lo que explica el mercado (beta × Nasdaq-100). Mide lo “propio” de la acción.</dd>
+<dt>Evento</dt><dd>Un día en que una acción cae en un color del semáforo (o, en NEGRO y ROJO, el día en que empieza el episodio).</dd>
+<dt>Intervalo de confianza del 95 %</dt><dd>Rango en el que, con 95 % de confianza, está el verdadero promedio. Si incluye el 0, no se puede afirmar que haya efecto.</dd>
+<dt>Bootstrap por bloques</dt><dd>Se repite el cálculo miles de veces remuestreando meses completos (no días sueltos), porque las caídas se agrupan en crisis.</dd>
+<dt>Proxy</dt><dd>Aproximación cuando falta el dato real. Aquí: volumen alto + hueco de apertura en lugar de “mala noticia”.</dd>
+<dt>Deriva</dt><dd>Tendencia a seguir en una dirección. “NEGRO tiene deriva a la baja” sería que después de NEGRO la acción sigue cayendo más que el mercado.</dd>
+<dt>Corte</dt><dd>Viernes en que sólo pasa a la siguiente liga quien esté dentro del mejor X % del ranking (50 %, 33 %, 10 % y 10 %).</dd>
+<dt>Pareada</dt><dd>Comparación de dos estrategias jugando exactamente el mismo concurso con los mismos rivales; elimina la suerte común.</dd>
+<dt>Concentrado</dt><dd>Rival que pone entre 70 % y 100 % de su dinero en TSLA o NVDA.</dd>
+</dl>
+</section>
+</main>
+</div>
+<footer>Generado por <code>python run_validacion.py informe</code>. Todos los números salen de <code>outputs/validacion/</code>; las frases de interpretación se calculan a partir de ellos.</footer>
+</body>
+</html>

@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bolsa Millonaria 2026 — Informe de backtest y plan de juego</title>
+<style>
+:root{--bg:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#898781;--line:#e1e0d9;--gain:#006300;--gainbg:#e6f4e6;--loss:#b32525;--lossbg:#fbeaea;
+--warn:#8a5a00;--warnbg:#fff4d6;--accent:#2a78d6;--tsla:#2a78d6;--nvda:#eb6834;--eco:#4a3aa7;--shadow:0 1px 2px rgba(0,0,0,.06)}
+@media (prefers-color-scheme:dark){:root{--bg:#0d0d0d;--surface:#1a1a19;--ink:#fff;--ink2:#c3c2b7;--muted:#898781;--line:#2c2c2a;--gain:#37c837;--gainbg:#12301a;--loss:#ff7b7b;--lossbg:#3a1616;
+--warn:#fab219;--warnbg:#3a2e08;--accent:#3987e5;--tsla:#3987e5;--nvda:#d95926;--eco:#9085e9;--shadow:none}}
+*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:64px}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:var(--accent)}code{overflow-wrap:anywhere;font-size:.92em}
+.layout{display:grid;grid-template-columns:240px minmax(0,1fr);max-width:1320px;margin:0 auto}
+nav.toc{position:sticky;top:0;align-self:start;height:100vh;overflow:auto;padding:20px 12px 20px 20px;border-right:1px solid var(--line);font-size:14px}
+nav.toc b{display:block;margin-bottom:8px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+nav.toc a{display:block;padding:5px 8px;border-radius:6px;color:var(--ink2);text-decoration:none}
+nav.toc a:hover,nav.toc a.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+main{padding:24px 24px 80px;min-width:0}
+section{margin:0 0 44px}
+h1{font-size:clamp(26px,4vw,38px);line-height:1.15;margin:0 0 6px}
+h2{font-size:clamp(21px,3vw,27px);margin:0 0 12px;padding-top:6px;border-top:2px solid var(--line)}
+h3{font-size:18px;margin:22px 0 8px}
+p{margin:.5em 0}.muted{color:var(--muted)}.small{font-size:14px}
+.card,.box{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:var(--shadow)}
+.verdict{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));margin:16px 0}
+.sem{display:flex;gap:12px;align-items:flex-start}.sem .dot{font-size:34px;line-height:1}
+.sem h3{margin:0 0 4px}
+.grid2{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+ol.big,ul.big{padding-left:22px}.big li{margin:8px 0}
+.kpis{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(310px,1fr))}
+.kpi h4{margin:0 0 8px;font-size:15px;display:flex;gap:6px;align-items:center}
+.kpi .row{display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px dashed var(--line);font-size:14px}
+.kpi .row:last-of-type{border-bottom:0}
+.kpi .mean{margin:8px 0 0;font-size:13px;color:var(--ink2)}
+.pos{color:var(--gain);font-weight:600}.neg{color:var(--loss);font-weight:600}.neu{color:var(--ink2)}
+.tip{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:var(--line);color:var(--ink2);font-size:12px;cursor:help;position:relative;flex:none;font-style:normal;font-weight:600}
+.tip:hover::after,.tip:focus::after{content:attr(data-tip);position:absolute;z-index:20;left:0;top:24px;width:min(300px,80vw);padding:10px 12px;background:var(--ink);color:var(--bg);border-radius:8px;font-size:13px;line-height:1.45;font-weight:400}
+details{margin:8px 0;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+details summary{cursor:pointer;padding:9px 12px;font-weight:600;font-size:14px}
+details .in{padding:2px 14px 12px;font-size:15px;color:var(--ink2)}
+.chart{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px;overflow:hidden}
+.warnbox{background:var(--warnbg);border:1px solid var(--warn);border-radius:10px;padding:12px 14px;margin:12px 0;color:var(--ink)}
+.warnbox b:first-child{color:var(--warn)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child,td:first-child{text-align:left}th{background:var(--bg);position:sticky;top:0;font-size:13px;color:var(--ink2)}
+td.l,th.l{text-align:left;white-space:normal}
+tr.hl td{background:var(--gainbg)}tbody tr:hover td{background:rgba(137,135,129,.1)}
+.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;font-weight:600}
+.pill.pos{background:var(--gainbg)}.pill.neg{background:var(--lossbg)}
+.filters{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+select,button,input{font:inherit;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:14px;margin:6px 0}.sw{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+pre.msg{background:#0f1f2e;color:#e6edf3;padding:14px;border-radius:10px;overflow:auto;font:14px/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap}
+dl.gl dt{font-weight:700;margin-top:12px}dl.gl dd{margin:2px 0 0;color:var(--ink2)}
+svg text{font-family:system-ui,sans-serif}
+.flow{width:100%;height:auto}
+.badge{font-size:12px;background:var(--line);padding:2px 8px;border-radius:99px;color:var(--ink2)}
+footer{color:var(--muted);font-size:13px;padding:20px 24px 40px;max-width:1320px;margin:0 auto}
+@media (max-width:900px){.layout{display:block}
+nav.toc{position:sticky;top:0;z-index:30;height:auto;display:flex;gap:6px;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);background:var(--bg);padding:8px 12px;white-space:nowrap}
+nav.toc b{display:none}nav.toc a{padding:6px 10px;border:1px solid var(--line);border-radius:99px;font-size:13px}
+main{padding:16px 14px 60px}th,td{padding:7px 8px}}
+</style>
+</head>
+<body>
+{% set f = fmt %}
+{% macro tip(t) %}<i class="tip" tabindex="0" data-tip="{{ t }}">ⓘ</i>{% endmacro %}
+{% macro fig(html, how, means) %}
+<div class="chart">{{ html|safe }}</div>
+<details><summary>📖 Cómo leer este gráfico</summary><div class="in">{{ how|safe }}</div></details>
+<details><summary>💡 Qué significa para ti</summary><div class="in">{{ means|safe }}</div></details>
+{% endmacro %}
+{% macro warn(t) %}<div class="warnbox"><b>⚠️ Cuidado.</b> {{ t|safe }}</div>{% endmacro %}
+<div class="layout">
+<nav class="toc" aria-label="Índice">
+<b>Contenido</b>
+<a href="#s1">1 · Veredicto</a><a href="#s2">2 · Métricas clave</a><a href="#s3">3 · Simulación del concurso</a>
+<a href="#s4">4 · Robustez estadística</a><a href="#s5">5 · Cómo funciona</a><a href="#s6">6 · ¿Buenos activos?</a>
+<a href="#s7">7 · Una operación</a><a href="#s8">8 · Resultados generales</a><a href="#s9">9 · Por setup y activo</a>
+<a href="#s10">10 · Qué mejoramos</a><a href="#s11">11 · Riesgos</a><a href="#s12">12 · Reglas finales</a>
+<a href="#s13">13 · Automatización</a><a href="#s14">14 · Bitácora</a><a href="#s15">15 · Glosario</a>
+</nav>
+<main>
+
+<section id="s1">
+<h1>Bolsa Millonaria 2026: ¿funciona la estrategia y cómo ganar?</h1>
+<p class="muted small">Informe generado el {{ hoy.strftime('%d/%m/%Y') }} · Datos de Yahoo Finance hasta el 02/10/2026 · Capital simulado: {{ f.cop(capital) }} · Concurso: 5-oct al 6-nov de 2026 (23 sesiones)</p>
+<div class="verdict">
+ <div class="card sem"><div class="dot">🔴</div><div><h3>Sistema original (setups A, B y C con TP/SL)</h3>
+  <p><b>No es rentable.</b> Entre 2015 y 2026 habría perdido entre {{ f.pct(-v.rent_max,0) }} y {{ f.pct(-v.rent_min,0) }} del capital. Antes de costos empata; los costos (≈ {{ f.pct(v.costo_trade,1) }} por operación) se comen todo.</p></div></div>
+ <div class="card sem"><div class="dot">🟡</div><div><h3>Plan final (concentrar en la acción más volátil)</h3>
+  <p><b>Depende.</b> No es una estrategia “segura”: es una apuesta concentrada, con una ventaja estadística pequeña y mucha varianza, diseñada para maximizar la probabilidad de terminar arriba del ranking, no el retorno promedio.</p></div></div>
+</div>
+<div class="grid2">
+<div class="box"><h3>Los 3 hallazgos principales</h3><ol class="big">
+<li><b>El sistema original pierde por costos, no por mala suerte.</b> Su acierto real fue de {{ f.pct(v.win_min,0) }}–{{ f.pct(v.win_max,0) }} frente al 43–44 % mínimo necesario, y cada operación perdió en promedio {{ f.pct(-v.exp_orig,1) }}.</li>
+<li><b>Ajustar parámetros no lo salva.</b> De las {{ n_cells }} combinaciones TP×SL probadas, {{ cells_pos_oos }} {{ 'fue rentable' if cells_pos_oos == 1 else 'fueron rentables' }} fuera de muestra. Las mejoras validadas reducen la pérdida por operación de {{ f.pct(v.exp_orig,2,True) }} a {{ f.pct(v.exp_mej,2,True) }}, pero el resultado sigue sin ser estadísticamente distinto de cero.</li>
+<li><b>Para <i>ganar</i> hay que concentrar, no proteger.</b> Comprar y mantener una sola acción muy volátil tuvo ≈ {{ f.pct(plan_a.campeon,0) }} de probabilidad de “campeón” (pasar los 4 cortes y terminar #1) frente a rivales sintéticos, contra ≈ 0,1 % del azar puro. Reducir exposición al ir liderando la baja a ≈ {{ f.pct(matrix.con,0) }}.</li></ol></div>
+<div class="box"><h3>Las 3 acciones que debes tomar</h3><ol class="big">
+<li><b>Lunes 5-oct, al abrir:</b> compra <b>{{ selected }}</b> con el <b>100 %</b> del capital (orden a mercado).</li>
+<li><b>Cada sesión:</b> haz tu micro-compra de actividad (el 15 % del puntaje) si ese día no compras otra cosa, antes de las 14:40.</li>
+<li><b>No toques nada más:</b> sin stops, sin cambiar de acción, sin reducir al ir ganando. Recibe el aviso de las 14:30 por Telegram y mantén la posición hasta el 6-nov.</li></ol></div>
+</div>
+{{ warn("Esto es un análisis histórico, no una promesa. El universo permitido incluye ganadores extremos conocidos hoy (NVDA ≈ ×650 en pesos desde 2015), y esa ventaja retrospectiva no se puede asumir hacia adelante. Con el plan final, en ≈ " ~ f.pct(p_lt10,0) ~ " de las ventanas históricas habrías perdido más de 10 %.") }}
+</section>
+
+<section id="s2">
+<h2>2 · Panel de métricas clave</h2>
+<p>Cada tarjeta compara los cuatro modos de riesgo del <b>sistema original</b> (2015–2026, con interés compuesto). Pasa el mouse o toca el ⓘ para ver la definición. Las pérdidas se muestran en <span class="neg">rojo</span> y las ganancias en <span class="pos">verde</span>.</p>
+<div class="kpis">
+{% for c in cards %}
+<div class="card kpi"><h4>{{ c.t }} {{ tip(c.tip) }}</h4>
+{% for r in c.vals %}<div class="row"><span>{{ r.modo }}</span><span class="{{ r.c }}">{{ r.v }}</span></div>{% endfor %}
+<p class="mean"><b>Qué significa:</b> {{ c.mean }}</p></div>
+{% endfor %}
+</div>
+</section>
+
+<section id="s3">
+<h2>3 · Simulación del concurso</h2>
+<p>El concurso dura 23 sesiones. Para saber qué esperar, tomamos <b>todas las ventanas de 23 sesiones</b> desde 2015 (cada una empieza con $ 100.000.000) y vemos cómo habría terminado cada estrategia.</p>
+{{ fig(hist_html,
+ "Cada barra cuenta qué porcentaje de las ventanas terminó con ese retorno. Más a la derecha = más ganancia. Haz clic en la leyenda para mostrar u ocultar estrategias.",
+ "El sistema original se concentra en pérdidas pequeñas (a la izquierda del cero). El plan final está mucho más repartido: pierde y gana más, con una cola larga a la derecha. En un concurso por ranking, esa cola es la que te puede poner de primero.") }}
+<h3>Estadísticas de las ventanas de 23 sesiones</h3>
+<div class="tablewrap"><table><thead><tr><th>Estrategia</th><th>Media</th><th>Mediana</th><th>Percentil 10 {{ tip("El 10 % de las ventanas termina peor que este valor.") }}</th><th>Percentil 90 {{ tip("El 10 % de las ventanas termina mejor que este valor.") }}</th><th>&gt; 0 %</th><th>&gt; 3 %</th><th>&gt; 10 %</th></tr></thead><tbody>
+{% for r in win_rows %}<tr><td>{{ r.nombre }}</td><td class="{{ f.cls(r.media) }}">{{ f.pct(r.media,1,True) }}</td><td class="{{ f.cls(r.mediana) }}">{{ f.pct(r.mediana,1,True) }}</td><td class="{{ f.cls(r.p10) }}">{{ f.pct(r.p10,1,True) }}</td><td class="{{ f.cls(r.p90) }}">{{ f.pct(r.p90,1,True) }}</td><td>{{ f.pct(r.gt0,0) }}</td><td>{{ f.pct(r.gt3,0) }}</td><td>{{ f.pct(r.gt10,0) }}</td></tr>{% endfor %}
+</tbody></table></div>
+{{ warn("Las ventanas del sistema original liquidan las posiciones abiertas el último día (pagan costos de venta); las del plan final y de “comprar y mantener TSLA” se valoran a mercado sin vender. Además, 2015–2026 tuvo ganadores extremos en el universo (NVDA, TSLA), lo que mejora artificialmente a las estrategias concentradas.") }}
+<h3>Simulador de ligas: probabilidad de pasar cada corte</h3>
+<p>Simulamos 1.000 participantes sintéticos con carteras concentradas de 2 a 4 activos al azar. Para ascender hay que estar en el <b>top 30 %</b> en los cortes 1 y 2 y en el <b>top 10 %</b> en los cortes 3 y 4; “campeón” = pasar los cuatro y terminar #1.</p>
+{{ fig(liga_html,
+ "Cada grupo de barras es una etapa; la altura es la probabilidad de haber superado todas las etapas hasta ahí. Cae a medida que el filtro se vuelve más exigente.",
+ "El plan final llega más lejos que los sistemas con TP/SL: ≈ " ~ f.pct(plan_a.pasa_20,0) ~ " pasa los 4 cortes y ≈ " ~ f.pct(plan_a.campeon,0) ~ " termina #1 frente al campo amplio (≈ " ~ f.pct(plan_m.campeon,0) ~ " frente a rivales que sólo operan acciones MGC). Son estimaciones, no garantías: los rivales reales operan activamente.") }}
+</section>
+
+<section id="s4">
+<h2>4 · Robustez estadística</h2>
+<p>¿Los resultados son reales o son suerte? Estas pruebas lo miden. Cada número viene con su explicación de una línea.</p>
+<h3>Intervalo de confianza de la expectancy por operación</h3>
+{{ fig(boot_html,
+ "Cada punto es lo que ganó (o perdió) en promedio una operación; la línea es el rango plausible al 95 % (bootstrap: se remuestrean las operaciones 10.000 veces). Si la línea no cruza el cero, el resultado no se explica por azar.",
+ "El sistema original perdió de forma estadísticamente clara en tres de sus cuatro modos (la línea completa queda a la izquierda del 0). Con las mejoras la pérdida se acerca a cero, pero el intervalo ya cruza el cero: <b>mejor, aunque no demostrablemente rentable</b>.") }}
+<div class="tablewrap"><table><thead><tr><th>Medida</th><th>Original · Blindaje</th><th>Mejorado · Blindaje</th><th class="l">Qué significa</th></tr></thead><tbody>
+<tr><td>Expectancy por trade</td><td class="neg">{{ f.pct(rob.bavd_o.media,2,True) }}</td><td class="{{ f.cls(rob.bavd_m.media) }}">{{ f.pct(rob.bavd_m.media,2,True) }}</td><td class="l">Resultado promedio de cada operación, ya con costos.</td></tr>
+<tr><td>Intervalo de confianza 95 %</td><td>{{ f.pct(rob.bavd_o.ic_lo,2,True) }} a {{ f.pct(rob.bavd_o.ic_hi,2,True) }}</td><td>{{ f.pct(rob.bavd_m.ic_lo,2,True) }} a {{ f.pct(rob.bavd_m.ic_hi,2,True) }}</td><td class="l">Rango en el que está, con 95 % de confianza, el verdadero resultado medio.</td></tr>
+<tr><td>p-valor vs. 0</td><td>{{ f.num(rob.bavd_o.p_t,3) }}</td><td>{{ f.num(rob.bavd_m.p_t,2) }}</td><td class="l">Probabilidad de ver un resultado así si la estrategia en realidad no tuviera efecto. Menor que 0,05 = difícil de atribuir al azar.</td></tr>
+<tr><td>Percentil vs. estrategia aleatoria</td><td>{{ f.pct(rob.mavd_o.percentil,1) }}</td><td>{{ f.pct(rob.mavd_m.percentil,1) }}</td><td class="l">Porcentaje de 1.000 estrategias aleatorias (mismos trades y costos) que rindió menos. 50 % = igual que el azar.</td></tr>
+</tbody></table></div>
+<h3>Contra el azar</h3>
+{{ fig(mc_html,
+ "El histograma muestra el retorno medio por trade de 1.000 estrategias que compran en fechas aleatorias, con los mismos activos, duración y costos. La línea roja es el sistema original.",
+ "El sistema original rindió <b>peor</b> que la mayoría de las estrategias aleatorias (percentil " ~ f.pct(rob.mavd_o.percentil,0) ~ "): sus reglas de entrada y de TP/SL no agregan valor, sólo pagan costos.") }}
+<h3>Dentro vs. fuera de muestra</h3>
+<p>Optimizamos con datos hasta 2021 y validamos con 2022–2026. Cada tramo arranca con capital nuevo.</p>
+<div class="tablewrap"><table><thead><tr><th>Modo</th><th class="l">Periodo</th><th>Trades</th><th>Acierto</th><th>Expectancy</th><th>P&amp;L neto</th></tr></thead><tbody>
+{% for r in oos_rows %}<tr><td>{{ r.modo }}</td><td class="l">{{ r.periodo }}</td><td>{{ r.n }}</td><td>{{ f.pct(r.win,0) }}</td><td class="{{ f.cls(r.exp) }}">{{ f.pct(r.exp,2,True) }}</td><td class="{{ f.cls(r.pnl) }}">{{ f.cop_m(r.pnl,0) }}</td></tr>{% endfor %}
+</tbody></table></div>
+<div class="box" style="margin-top:12px"><b>Plan final:</b> retorno medio por ventana {{ f.pct(plan_stats.media,1,True) }}; promedios anuales positivos en {{ plan_years_pos }} de {{ plan_years }} años; intervalo 95 % de la media anual (bootstrap sobre años) {{ f.pct(plan_ci[0],1,True) }} a {{ f.pct(plan_ci[1],1,True) }}. {{ warn("Son sólo 12 años (y 12 observaciones): el intervalo es estrecho en apariencia, pero depende de que TSLA/NVDA y su régimen se repitan. Sin esa ventaja retrospectiva no puedo asegurar un retorno positivo.") }}</div>
+</section>
+
+<section id="s5">
+<h2>5 · Cómo funciona la estrategia</h2>
+<h3>Plan final</h3>
+<div class="chart" style="padding:12px">
+<svg class="flow" viewBox="0 0 900 330" role="img" aria-label="Diagrama del plan final">
+<defs><marker id="ar" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#898781"/></marker></defs>
+<g font-size="14" fill="currentColor" stroke="none">
+<rect x="10" y="20" width="200" height="70" rx="10" fill="none" stroke="#898781" stroke-width="1.5"/>
+<text x="110" y="48" text-anchor="middle" font-weight="700">Antes (fin de semana)</text><text x="110" y="70" text-anchor="middle">Ranking por volatilidad</text>
+<rect x="250" y="20" width="200" height="70" rx="10" fill="none" stroke="#2a78d6" stroke-width="2"/>
+<text x="350" y="48" text-anchor="middle" font-weight="700">Lunes 5-oct (apertura)</text><text x="350" y="70" text-anchor="middle">Comprar {{ selected }} al 100 %</text>
+<rect x="490" y="20" width="200" height="70" rx="10" fill="none" stroke="#898781" stroke-width="1.5"/>
+<text x="590" y="48" text-anchor="middle" font-weight="700">Cada sesión</text><text x="590" y="70" text-anchor="middle">Micro-compra de actividad</text>
+<rect x="730" y="20" width="160" height="70" rx="10" fill="none" stroke="#898781" stroke-width="1.5"/>
+<text x="810" y="48" text-anchor="middle" font-weight="700">6-nov</text><text x="810" y="70" text-anchor="middle">Valoración final</text>
+<path d="M210,55 H245" stroke="#898781" stroke-width="2" marker-end="url(#ar)"/><path d="M450,55 H485" stroke="#898781" stroke-width="2" marker-end="url(#ar)"/><path d="M690,55 H725" stroke="#898781" stroke-width="2" marker-end="url(#ar)"/>
+<text x="450" y="140" text-anchor="middle" font-weight="700">Durante el concurso: ¿qué hago si…?</text>
+<rect x="10" y="155" width="205" height="82" rx="10" fill="none" stroke="#898781"/><text x="112" y="180" text-anchor="middle" font-weight="700">Corte semanal</text><text x="112" y="202" text-anchor="middle">Mirar mi percentil</text><text x="112" y="222" text-anchor="middle">y NO reducir</text>
+<rect x="232" y="155" width="205" height="82" rx="10" fill="none" stroke="#898781"/><text x="334" y="180" text-anchor="middle" font-weight="700">Cae 15 % o más</text><text x="334" y="202" text-anchor="middle">Aviso informativo;</text><text x="334" y="222" text-anchor="middle">el plan no vende</text>
+<rect x="454" y="155" width="205" height="82" rx="10" fill="none" stroke="#898781"/><text x="556" y="180" text-anchor="middle" font-weight="700">Reporte de resultados</text><text x="556" y="202" text-anchor="middle">Mantener a través</text><text x="556" y="222" text-anchor="middle">del reporte</text>
+<rect x="676" y="155" width="214" height="82" rx="10" fill="none" stroke="#898781"/><text x="783" y="180" text-anchor="middle" font-weight="700">Cambia el ranking</text><text x="783" y="202" text-anchor="middle">NO cambiar de acción:</text><text x="783" y="222" text-anchor="middle">se elige el primer día</text>
+<text x="450" y="290" text-anchor="middle" font-size="13" fill="#898781">Regla de elección: la acción MGC con mayor desviación estándar diaria de las últimas 250 sesiones (hoy: {{ selected }}).</text>
+</g></svg></div>
+<h3>Tabla de reglas</h3>
+<div class="tablewrap"><table><thead><tr><th>Regla</th><th class="l">Qué hacer</th><th class="l">Por qué (evidencia)</th></tr></thead><tbody>
+<tr><td>Elegir acción</td><td class="l">La acción MGC con mayor volatilidad diaria en 250 sesiones (hoy: <b>{{ selected }}</b>).</td><td class="l">Regla a priori (sin mirar el futuro). Sin filtro de momentum: agregarlo bajó la probabilidad de “campeón” de ≈ 10 % a ≈ 3 %.</td></tr>
+<tr><td>Tamaño</td><td class="l">100 % del capital en una sola acción.</td><td class="l">La concentración maximiza la varianza; en un ranking, la varianza es lo que te lleva al #1.</td></tr>
+<tr><td>Entrada</td><td class="l">Lunes 5-oct, orden a mercado al abrir.</td><td class="l">Cuanto antes, más sesiones de exposición. Costo de entrada ≈ 0,6 % (spread + comisión).</td></tr>
+<tr><td>Stops</td><td class="l">Ninguno.</td><td class="l">En las pruebas, los stops empeoraron el resultado en ambos tramos (pierden slippage y se salen antes del rebote).</td></tr>
+<tr><td>Cortes semanales</td><td class="l">Mantener 100 %.</td><td class="l">Reducir al ir liderando bajó el “campeón” de {{ f.pct(matrix.sin,0) }} a {{ f.pct(matrix.con,0) }} (TSLA, campo amplio).</td></tr>
+<tr><td>Reportes</td><td class="l">Mantener.</td><td class="l">Vender antes del reporte perdía en promedio; mantener añade varianza.</td></tr>
+<tr><td>Actividad</td><td class="l">Una micro-compra por sesión sin compra real.</td><td class="l">El 15 % del puntaje; en el modelo cuesta $ 14.875 por sesión.</td></tr>
+</tbody></table></div>
+<details><summary>Ver las reglas del sistema original (setups A, B y C)</summary><div class="in">
+<p><b>TP / SL / trailing por activo:</b> ECOPETROL +6 % / −3 % (SL sube a +1,5 % si llega a +4 %); NVDA +7 % / −3,5 % (a +1,5 % si llega a +4,5 %); TSLA +8 % / −4 % (a +1,5 % si llega a +5,5 %).</p>
+<p><b>Setup B (catalizador):</b> comprar al cierre 2 sesiones antes del reporte y vender antes de que salga. <b>Setup A (rebote):</b> comprar tras caídas de ≥ 3 % (ECOPETROL), ≥ 4 % (NVDA), ≥ 5 % (TSLA); stop de tiempo de 3 sesiones. <b>Setup C (Brent):</b> si el Brent sube ≥ 2,5 % compra ECOPETROL al día siguiente; stop de 5 sesiones. Máximo 2 posiciones; límite de 8 sesiones.</p>
+<p><b>Costos simulados:</b> comisión de trii (fija $ 14.875 hasta $ 5.000.000; 0,2975 % por encima), spread de entrada (0,2 % ECOPETROL, 0,3 % TSLA/NVDA) y slippage de salida a mercado (0,3 % / 0,4 %).</p></div></details>
+</section>
+
+<section id="s6">
+<h2>6 · ¿Elegimos bien los activos?</h2>
+<p>Comparamos los {{ n_universe }} activos permitidos por volatilidad (cuánto se mueven) y liquidez (cuánto se negocia por día). La respuesta corta: <b>NVDA y TSLA sí; ECOPETROL no tanto</b>.</p>
+{{ fig(scatter_html,
+ "Cada punto es un activo. Arriba = se mueve más; a la derecha = se negocia más. Los tres elegidos están resaltados; las X grises son la lista negra (no operar).",
+ "Lo ideal es arriba a la derecha: movimiento suficiente para ganar y liquidez para entrar y salir. TSLA y NVDA están ahí. ECOPETROL es líquida entre las locales pero muy poco volátil y sus reportes caen a mediados de noviembre (fuera del concurso). Los de la lista negra tienen poca liquidez: operarlos es peligroso.") }}
+<div class="tablewrap"><table><thead><tr><th>Puesto</th><th class="l">Activo</th><th class="l">Tipo</th><th>Volatilidad (ATR 14 d)</th><th>Valor negociado / día</th><th>Días sin volumen</th><th>Reportes en la ventana (por año)</th><th>Puntaje</th></tr></thead><tbody>
+{% for r in rank_rows %}<tr {% if r.sel %}class="hl"{% endif %}><td>{{ r.pos }}</td><td class="l"><b>{{ r.t }}</b></td><td class="l">{{ r.g }}</td><td>{{ f.num(r.atr,2) }} %</td><td>{{ f.cop_big(r.val*1e6) }}</td><td>{{ f.num(r.v0,1) }} %</td><td>{{ f.num(r.ev,2) }}</td><td>{{ f.num(r.score,1) }}</td></tr>{% endfor %}
+{% for r in rank_sys %}{% if r.pos > 12 %}<tr class="hl"><td>{{ r.pos }}</td><td class="l"><b>{{ r.t }}</b></td><td class="l">Local</td><td>{{ f.num(r.atr,2) }} %</td><td>{{ f.cop_big(r.val*1e6) }}</td><td>{{ f.num(r.v0,1) }} %</td><td>{{ f.num(r.ev,2) }}</td><td>{{ f.num(r.score,1) }}</td></tr>{% endif %}{% endfor %}
+</tbody></table></div>
+<p class="small muted">Puntaje = 30 % volatilidad + 30 % liquidez + 20 % frecuencia de reportes en el 5-oct–6-nov + 20 % movimiento medio antes del reporte (percentiles entre los {{ n_universe }} activos). Verdes: los 3 activos originales.</p>
+<div class="box"><b>Respuesta:</b> NVDA es #1 y TSLA #7; ECOPETROL es #23. Para el plan final la pregunta cambió: ya no importa el “mejor combo” sino la acción más volátil con liquidez, y ésa es TSLA ({{ f.num(rank_sys[0].atr,2) }} % de ATR).</div>
+</section>
+
+<section id="s7">
+<h2>7 · Una operación de principio a fin</h2>
+<p>Un caso real del backtest del sistema original (modo Blindaje): TSLA, del {{ tr.t.entry_date.strftime('%d/%m/%Y') }} al {{ tr.t.exit_date.strftime('%d/%m/%Y') }}.</p>
+{{ fig(trade_html,
+ "Velas verdes = el precio subió ese día; rojas = bajó. Las líneas punteadas son los niveles del sistema: el take profit (+8 %), el stop loss (−4 %), el gatillo del trailing y el nuevo stop. El sombreado azul es el tiempo en posición.",
+ "Entrada → el precio sube y toca el gatillo del trailing (+5,5 %) → el stop sube a +1,5 % → el precio cae y lo toca → salida con ganancia pequeña. Sirve para ver por qué el trailing protege pero también corta ganancias.") }}
+<div class="tablewrap"><table><thead><tr><th class="l">Paso</th><th class="l">Detalle</th><th>Monto</th></tr></thead><tbody>
+<tr><td class="l">1 · Entrada</td><td class="l">Compra al cierre a USD {{ f.num(tr.ent,2) }} (incluye spread de 0,3 %); dólar a {{ f.cop(tr.fx_ent) }}</td><td>{{ f.cop(tr.t.invested_cop) }}</td></tr>
+<tr><td class="l">2 · Niveles</td><td class="l">TP en USD {{ f.num(tr.tp,2) }} · SL en USD {{ f.num(tr.sl,2) }}</td><td></td></tr>
+<tr><td class="l">3 · Salida</td><td class="l">Motivo: {{ tr.exit_reason }} · {{ tr.t.sessions }} sesiones · dólar a {{ f.cop(tr.fx_exit) }}</td><td></td></tr>
+<tr><td class="l">4 · Costos</td><td class="l">Comisiones {{ f.cop(tr.t.fees) }} + spread {{ f.cop(tr.t.spread_cost) }} + slippage {{ f.cop(tr.t.slippage_cost) }}</td><td class="neg">{{ f.cop(-(tr.t.fees + tr.t.spread_cost + tr.t.slippage_cost)) }}</td></tr>
+<tr><td class="l"><b>5 · Ganancia neta</b></td><td class="l">Ganancia bruta {{ f.cop(tr.t.gross_pnl) }} menos costos</td><td class="{{ f.cls(tr.t.net_pnl) }}"><b>{{ f.cop(tr.t.net_pnl) }}</b></td></tr>
+</tbody></table></div>
+</section>
+
+<section id="s8">
+<h2>8 · Resultados generales</h2>
+{{ fig(equity_html,
+ "Muestra cuánto valdrían $ 100 invertidos el 2-ene-2015 en cada estrategia. La escala es logarítmica (cada franja multiplica por 10) porque NVDA creció cientos de veces.",
+ "Las líneas gruesas (sistema original) terminan por debajo de 100: perdieron dinero. Comprar y mantener TSLA o NVDA ganó muchísimo, pero eso es con la ventaja de saber hoy que fueron ganadoras; no es una regla que se pudiera aplicar en 2015.") }}
+{{ fig(dd_html,
+ "Cada línea muestra cuánto cae el patrimonio desde su máximo anterior. 0 % = en su mejor momento; −80 % = perdió el 80 % desde el máximo.",
+ "Los modos con más exposición del sistema original llegan a caídas de −88 % a −94 %: habrías tenido que aguantar casi perderlo todo. Comprar y mantener el 1/3 en cada activo cae menos (≈ −55 %) y se recupera.") }}
+<div class="tablewrap"><table><thead><tr><th>Benchmark</th><th>Rentabilidad</th><th>CAGR</th><th>Máx. drawdown</th><th>Sharpe</th></tr></thead><tbody>
+{% for k, r in bench_m.iterrows() %}{% if k != 'efectivo' %}<tr><td>{{ {'bh_TSLA':'Comprar y mantener TSLA','bh_NVDA':'Comprar y mantener NVDA','bh_ECOPETROL':'Comprar y mantener ECOPETROL','bh_tercios':'1/3 en cada activo'}[k] }}</td><td class="{{ f.cls(r.rent_neta) }}">{{ f.pct(r.rent_neta,0,True) }}</td><td>{{ f.pct(r.cagr,1,True) }}</td><td>{{ f.pct(r.max_dd,0) }}</td><td>{{ f.num(r.sharpe,2) }}</td></tr>{% endif %}{% endfor %}
+</tbody></table></div>
+</section>
+
+<section id="s9">
+<h2>9 · Por setup y por activo</h2>
+{{ fig(setup_html,
+ "Cada barra es el P&L neto acumulado (en millones de pesos) de un setup en un activo, modo Blindaje, 2015–2026. Verde = ganó; rojo = perdió.",
+ "Todos los grupos perdieron. El Setup C (Brent → ECOPETROL) es el peor: acierto de ≈ 20 % y la mayor pérdida. El Setup A sobre NVDA es el que más se acerca a empatar antes de costos, pero los costos lo vuelven negativo. <b>Conviene eliminar el Setup C</b> y no depender del B.") }}
+<div class="tablewrap"><table><thead><tr><th>Setup</th><th class="l">Activo</th><th>Trades</th><th>P&amp;L neto</th><th>Acierto</th><th>Bruto por trade {{ tip("Retorno medio por operación antes de costos.") }}</th><th>Costo por trade</th><th>Neto por trade</th></tr></thead><tbody>
+{% for r in setup_rows %}<tr><td>{{ r.setup }}</td><td class="l">{{ r.asset }}</td><td>{{ r.n }}</td><td class="{{ f.cls(r.pnl) }}">{{ f.cop_m(r.pnl*1e6,1) }}</td><td>{{ f.pct(r.win,0) }}</td><td class="{{ f.cls(r.bruto) }}">{{ f.pct(r.bruto,2,True) }}</td><td class="neg">{{ f.pct(r.costo,2) }}</td><td class="{{ f.cls(r.neto) }}">{{ f.pct(r.neto,2,True) }}</td></tr>{% endfor %}
+</tbody></table></div>
+</section>
+
+<section id="s10">
+<h2>10 · Qué mejoramos y por qué</h2>
+<p>Probamos {{ n_tested }} configuraciones (TP, SL, umbrales, trailing, filtros de tendencia y RSI…). Una mejora sólo se aceptó si se sostuvo <b>fuera de muestra</b>: elegida con datos hasta 2021 y confirmada con 2022–2026, con un mínimo de 30 operaciones y con la zona vecina también buena (para no premiar picos aislados).</p>
+{{ fig(heat_html,
+ "Cada celda es una combinación de take profit (filas) y stop loss (columnas). El color y el número son la expectancy neta por operación: verde = gana, rojo = pierde. Arriba, datos de entrenamiento; abajo, de validación.",
+ "Arriba hay celdas verdes (NVDA con TP 10–12 % y SL 6–8 %); abajo esas mismas celdas se vuelven rojas: <b>eso es sobreajuste</b>. En validación <b>ninguna</b> celda fue positiva en ninguno de los tres activos. Por eso las mejoras aceptadas sólo reducen la pérdida.") }}
+<h3>Antes vs. después</h3>
+<div class="tablewrap"><table><thead><tr><th>Modo</th><th>Expectancy antes</th><th>Expectancy después</th><th>Rentab. antes</th><th>Rentab. después</th><th>Acierto antes → después</th><th>Fuera de muestra (exp.)</th></tr></thead><tbody>
+{% for r in cmp_rows %}<tr><td>{{ r.modo }}</td><td class="{{ f.cls(r.o.expectancy_pct) }}">{{ f.pct(r.o.expectancy_pct,2,True) }}</td><td class="{{ f.cls(r.n.expectancy_pct) }}">{{ f.pct(r.n.expectancy_pct,2,True) }}</td><td class="{{ f.cls(r.o.rent_neta) }}">{{ f.pct(r.o.rent_neta,0,True) }}</td><td class="{{ f.cls(r.n.rent_neta) }}">{{ f.pct(r.n.rent_neta,0,True) }}</td><td>{{ f.pct(r.o.win_rate,0) }} → {{ f.pct(r.n.win_rate,0) }}</td><td>{{ f.pct(r.ooso.expectancy_pct,2,True) }} → {{ f.pct(r.oosn.expectancy_pct,2,True) }}</td></tr>{% endfor %}
+</tbody></table></div>
+<h3>Mejoras que pasaron la validación</h3>
+<ul class="big">
+<li><b>ECOPETROL:</b> TP 3 % / SL 8 % (zona plana de stops amplios).</li><li><b>NVDA:</b> TP 10 % / SL 8 %.</li>
+<li><b>Setup A de ECOPETROL:</b> sólo si la media de 20 días está sobre la de 50. <b>Setup A de TSLA:</b> sólo si el RSI de 14 días ≤ 40.</li>
+<li><b>Setup C eliminado:</b> negativo dentro y fuera de muestra en las 18 variantes.</li>
+<li>Rechazadas: TP×SL de TSLA, umbrales de A y C, stop de tiempo, trailing y sesiones antes del reporte ({{ rejected_n }} pruebas).</li></ul>
+{{ warn("Probar muchas configuraciones y quedarse con las que funcionan es la receta del sobreajuste. Por eso estas mejoras deben leerse como “pierde menos”, no como “ahora gana”.") }}
+<h3>El rediseño: buscar algo que sí gane</h3>
+<p>Como el sistema original no era rescatable, probamos otras familias (momentum, tendencia, rotación, reacción a reportes “PEAD”, volatilidad). Lo que sí se sostuvo: <b>mantener supera a rotar</b>, <b>los stops duros empeoran</b>, <b>la acción más volátil da más opciones de ganar</b>. Fuera de muestra (2022–2026, rivales sintéticos amplios):</p>
+<div class="tablewrap"><table><thead><tr><th class="l">Estrategia</th><th>Retorno medio / ventana</th><th>Ventanas &gt; 0</th><th>Percentil medio final {{ tip("0 = primero, 100 = último. 50 = en la mediana.") }}</th><th>En el top 10 %</th><th>“Campeón” (todo el periodo)</th></tr></thead><tbody>
+{% for r in redes %}<tr {% if loop.first %}class="hl"{% endif %}><td class="l">{{ r.lab }}</td><td class="{{ f.cls(r.ret) }}">{{ f.pct(r.ret,1,True) }}</td><td>{{ f.pct(r.pctpos,0) }}</td><td>{{ f.num(r.p,1) }}</td><td>{{ f.pct(r.top10,0) }}</td><td>{{ f.pct(r.camp,0) }}</td></tr>{% endfor %}
+</tbody></table></div>
+<p class="small muted">La señal de reacción a resultados (acciones MGC que suben ≥ 5 % tras reportar siguen subiendo ≈ +3 % en 20 sesiones, n ≈ 190) existe, pero es demasiado pequeña frente a la varianza del concurso como para decidir un ranking.</p>
+</section>
+
+<section id="s11">
+<h2>11 · Riesgos y limitaciones</h2>
+{{ warn("<b>Sesgo de supervivencia.</b> El universo es la lista permitida de hoy: incluye ganadores extremos conocidos a posteriori (NVDA, TSLA). Sin ellos, el retorno medio de las estrategias concentradas se acerca a cero.") }}
+{{ warn("<b>Spread real del MGC.</b> Usé 0,3 % de spread y 0,4 % de slippage (igual que TSLA/NVDA). El spread real del simulador de trii para acciones globales no se conoce; si es mayor, todo rinde menos. El filtro de spread &gt; 0,5 % no se puede simular con datos diarios.") }}
+{{ warn("<b>Horario de ejecución.</b> El backtest compra al cierre o a la apertura. En trii las órdenes MGC tienen un corte de ≈ 14:40, no el cierre de las 15:00 de Bogotá, así que el precio real puede diferir.") }}
+{{ warn("<b>Liquidez y precios de Yahoo.</b> Los precios de Yahoo tienen ticks erróneos (limpié los más graves) y el USD/COP de Yahoo es ruidoso (±2–5 % entre días). La liquidez de acciones MGC se midió en bolsa de EE. UU., no en el simulador.") }}
+{{ warn("<b>Rivales reales.</b> Los 1.000 participantes son sintéticos (carteras al azar de 2–4 activos). Los rivales reales operan activamente, pueden tener más información y apostar a cualquier acción, y el reglamento puede medir el percentil de otra forma (acumulado vs. semanal).") }}
+{{ warn("<b>Pocas observaciones.</b> Con ventanas de 23 sesiones que se solapan, la muestra efectiva es de unas 120 ventanas independientes: casi nada es estadísticamente significativo. Ganar el concurso tiene mucho de suerte.") }}
+</section>
+
+<section id="s12">
+<h2>12 · Reglas finales recomendadas (para el lunes)</h2>
+<div class="tablewrap"><table><thead><tr><th class="l">Cuándo</th><th class="l">Acción</th><th class="l">Detalle</th></tr></thead><tbody>
+<tr><td class="l"><b>Dom 4-oct</b></td><td class="l">Confirmar la acción</td><td class="l">Ejecuta <code>python signals.py --dry-run</code>. Hoy elige <b>{{ selected }}</b>.</td></tr>
+<tr><td class="l"><b>Lun 5-oct · apertura</b></td><td class="l">Comprar {{ selected }} con el 100 %</td><td class="l">Orden a mercado por {{ f.cop(capital) }}. Anota el precio en <code>data/positions.csv</code>.</td></tr>
+<tr><td class="l"><b>Cada sesión</b></td><td class="l">Micro-compra de actividad</td><td class="l">Antes de las 14:40, si no compraste nada más ese día. Anótalo en <code>data/actividad.csv</code>.</td></tr>
+<tr><td class="l"><b>Cada día 14:30</b></td><td class="l">Leer el aviso de Telegram</td><td class="l">Te dice qué hacer hoy, tu P&amp;L y los reportes próximos.</td></tr>
+<tr><td class="l"><b>Cortes (sesiones 5, 10, 15, 20)</b></td><td class="l">No cambiar nada</td><td class="l">Mantén 100 %. No reduzcas al ir liderando.</td></tr>
+<tr><td class="l"><b>21-oct (TSLA reporta)</b></td><td class="l">Mantener</td><td class="l">Más varianza; es parte del plan.</td></tr>
+<tr><td class="l"><b>Vie 6-nov</b></td><td class="l">Nada (confirma el reglamento)</td><td class="l">Si el concurso valora a mercado, no vendas.</td></tr>
+</tbody></table></div>
+<div class="grid2" style="margin-top:12px">
+<div class="box"><b>Siempre:</b><ul><li>Una sola acción, 100 %.</li><li>Sin stops.</li><li>Sin tocar la lista negra ({{ blacklist_names }}).</li></ul></div>
+<div class="box"><b>Nunca:</b><ul><li>Cambiar de acción a mitad de camino.</li><li>“Cubrirte” al ir ganando.</li><li>Operar con dinero que no puedas perder (esto es un concurso simulado).</li></ul></div></div>
+</section>
+
+<section id="s13">
+<h2>13 · Cómo usar la automatización</h2>
+<ol class="big">
+<li><b>Crea tu bot:</b> en Telegram habla con <b>@BotFather</b>, escribe <code>/newbot</code> y copia el token. Escríbele un mensaje a tu bot y abre <code>https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</code> para ver tu <code>chat id</code>.</li>
+<li><b>Guarda las claves:</b> copia <code>.env.example</code> a <code>.env</code> y pega <code>TELEGRAM_BOT_TOKEN</code> y <code>TELEGRAM_CHAT_ID</code>.</li>
+<li><b>Prueba:</b> <code>python signals.py --dry-run</code> (sólo imprime) y luego <code>python signals.py</code> (lo envía).</li>
+<li><b>Programa las 14:30:</b> Programador de tareas de Windows → tarea diaria (lunes a viernes) → programa <code>python.exe</code>, argumento <code>signals.py</code>, “Iniciar en” la carpeta del proyecto. El README trae el comando <code>schtasks</code> listo.</li>
+<li><b>Actualiza dos archivos:</b> <code>data/positions.csv</code> (cuando compres) y <code>data/actividad.csv</code> (cada día que hagas una compra).</li></ol>
+<h3>Ejemplo de mensaje (antes del concurso)</h3><pre class="msg">{{ msg_before }}</pre>
+<h3>Ejemplo de mensaje (durante el concurso, con posición abierta y reporte cerca)</h3><pre class="msg">{{ msg_during }}</pre>
+{{ warn("trii no tiene API pública: el script <b>nunca envía órdenes</b>, sólo avisos. La orden la das tú.") }}
+</section>
+
+<section id="s14">
+<h2>14 · Bitácora de trades</h2>
+<p>Todas las operaciones del backtest del sistema original ({{ n_trades_total }} filas, 4 modos). Haz clic en un encabezado para ordenar.</p>
+<div class="filters">
+<select id="fm"><option value="">Modo: todos</option></select><select id="fa"><option value="">Activo: todos</option></select>
+<select id="fs"><option value="">Setup: todos</option></select><select id="fy"><option value="">Año: todos</option></select>
+<button class="primary" id="dl">⬇ Descargar CSV</button><span id="cnt" class="muted small" style="align-self:center"></span></div>
+<div class="tablewrap" style="max-height:520px;overflow:auto"><table id="tt"><thead><tr>
+<th data-k="0" class="l">Modo</th><th data-k="1" class="l">Activo</th><th data-k="2" class="l">Setup</th><th data-k="3" class="l">Entrada</th><th data-k="4" class="l">Salida</th><th data-k="5" class="l">Motivo</th><th data-k="6">Sesiones</th><th data-k="7">Invertido (COP)</th><th data-k="8">Neto (COP)</th><th data-k="9">Retorno neto</th></tr></thead><tbody></tbody></table></div>
+<p><button id="more">Mostrar más filas</button></p>
+</section>
+
+<section id="s15">
+<h2>15 · Glosario</h2>
+<dl class="gl">
+<dt>TP (take profit)</dt><dd>Precio al que se vende automáticamente para asegurar una ganancia. Ejemplo: compras a $ 100 con TP +8 %: vendes en $ 108.</dd>
+<dt>SL (stop loss)</dt><dd>Precio al que se vende para limitar una pérdida. Con SL −4 % sobre $ 40.000.000 pierdes como máximo ≈ $ 1.600.000 (más slippage).</dd>
+<dt>Spread</dt><dd>Diferencia entre el precio de compra y el de venta; es un costo al entrar. Con 0,3 %, comprar $ 40.000.000 cuesta ≈ $ 120.000 extra.</dd>
+<dt>Slippage</dt><dd>Diferencia entre el precio que esperabas y el que obtienes al ejecutar una orden a mercado.</dd>
+<dt>Drawdown</dt><dd>Caída desde el máximo anterior del patrimonio. −60 % = perdiste el 60 % desde tu mejor momento.</dd>
+<dt>Win rate (acierto)</dt><dd>Porcentaje de operaciones ganadoras. 40 de 100 operaciones ganadoras = 40 %.</dd>
+<dt>Payoff</dt><dd>Ganancia media de las ganadoras dividida por la pérdida media de las perdedoras.</dd>
+<dt>Profit factor</dt><dd>Suma de ganancias dividida por suma de pérdidas. Menor que 1 = pierdes dinero.</dd>
+<dt>Expectancy</dt><dd>Resultado promedio esperado por operación. Con −1,2 % y $ 40.000.000 por operación, esperas perder ≈ $ 480.000 por operación.</dd>
+<dt>Sharpe</dt><dd>Retorno dividido por la volatilidad (riesgo total). Mayor es mejor; negativo = el riesgo no se pagó.</dd>
+<dt>Sortino</dt><dd>Como el Sharpe, pero sólo cuenta la volatilidad de las caídas.</dd>
+<dt>CAGR</dt><dd>Retorno anual compuesto: la tasa anual constante que lleva tu capital del inicio al final.</dd>
+<dt>p-valor</dt><dd>Probabilidad de observar un resultado igual o más extremo si en realidad no hubiera efecto. Por debajo de 0,05 suele considerarse evidencia fuerte.</dd>
+<dt>Bootstrap</dt><dd>Técnica que remuestrea los datos miles de veces para estimar qué tan incierto es un promedio.</dd>
+<dt>Sobreajuste</dt><dd>Ajustar tanto las reglas al pasado que parecen funcionar sólo ahí; fallan con datos nuevos.</dd>
+<dt>Walk-forward / validación fuera de muestra</dt><dd>Elegir parámetros con datos viejos y comprobarlos con datos posteriores que no se usaron para elegir.</dd>
+<dt>Look-ahead bias</dt><dd>Error de usar información del futuro para tomar una decisión del pasado. Aquí cada decisión usa sólo datos disponibles en ese momento.</dd>
+<dt>Percentil</dt><dd>Posición relativa. En el concurso, “top 20 %” significa que el 20 % de los participantes va por delante de ti.</dd>
+<dt>ATR</dt><dd>Average True Range: el rango promedio diario de un activo; mide cuánto se mueve. Un ATR de 4,7 % significa que, en promedio, el precio se mueve ≈ 4,7 % en un día.</dd>
+<dt>PEAD</dt><dd>Post-earnings announcement drift: tendencia de una acción a seguir en la dirección de su reacción a un reporte de resultados.</dd>
+</dl>
+</section>
+</main></div>
+<footer>Generado con run_fase6.py · plantilla Jinja2 separada del cálculo · Plotly incluido en el archivo (abre sin internet). Supuestos completos en ASSUMPTIONS.md.</footer>
+<script>
+const T={{ trades_json|safe }};
+const $=id=>document.getElementById(id);
+const fmtN=(x,d=0)=>x.toLocaleString('es-CO',{minimumFractionDigits:d,maximumFractionDigits:d});
+const cols=[0,1,2,5,10];
+const sel={fm:0,fa:1,fs:2,fy:10};
+for(const [id,c] of Object.entries(sel)){const vals=[...new Set(T.map(r=>r[c]))].sort();for(const v of vals){const o=document.createElement('option');o.value=v;o.textContent=v;$(id).appendChild(o)}}
+let sortK=null,sortD=1,limit=150,rows=[];
+function filt(){return T.filter(r=>Object.entries(sel).every(([id,c])=>!$(id).value||String(r[c])===$(id).value))}
+function render(){rows=filt();if(sortK!==null)rows=rows.slice().sort((a,b)=>(a[sortK]>b[sortK]?1:a[sortK]<b[sortK]?-1:0)*sortD);
+const tb=$('tt').querySelector('tbody');tb.innerHTML=rows.slice(0,limit).map(r=>`<tr><td class="l">${r[0]}</td><td class="l">${r[1]}</td><td class="l">${r[2]}</td><td class="l">${r[3]}</td><td class="l">${r[4]}</td><td class="l">${r[5]}</td><td>${r[6]}</td><td>$ ${fmtN(r[7])}</td><td class="${r[8]>=0?'pos':'neg'}">$ ${fmtN(r[8])}</td><td class="${r[9]>=0?'pos':'neg'}">${fmtN(r[9],2)} %</td></tr>`).join('');
+$('cnt').textContent=`${fmtN(Math.min(limit,rows.length))} de ${fmtN(rows.length)} filas`;$('more').style.display=limit<rows.length?'':'none'}
+Object.keys(sel).forEach(id=>$(id).addEventListener('change',()=>{limit=150;render()}));
+$('tt').querySelectorAll('th').forEach(th=>th.addEventListener('click',()=>{const k=+th.dataset.k;sortD=sortK===k?-sortD:1;sortK=k;render()}));
+$('more').addEventListener('click',()=>{limit+=300;render()});
+$('dl').addEventListener('click',()=>{const h=['modo','activo','setup','entrada','salida','motivo','sesiones','invertido_cop','neto_cop','retorno_neto_pct','anio'];
+const csv=[h.join(',')].concat(rows.map(r=>r.join(','))).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['﻿'+csv],{type:'text/csv'}));a.download='bitacora_trades.csv';a.click()});
+render();
+// índice: resalta la sección visible
+const links=[...document.querySelectorAll('nav.toc a')];
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){links.forEach(l=>l.classList.toggle('on',l.getAttribute('href')==='#'+e.target.id))}}),{rootMargin:'-30% 0px -60% 0px'});
+document.querySelectorAll('section').forEach(s=>io.observe(s));
+</script>
+</body></html>
