@@ -125,6 +125,15 @@ Además del radar de las 19:30, el monitor (cada 15 min en horario de trii) avis
 | ⚠️ Salud de fuentes | una fuente cae o se recupera | 60 min |
 Todo se ajusta en `config.yaml → monitor.eventos` (`activo: false` apaga los avisos de novedades; el tope `max_por_corrida` limita cuántos salen juntos). Estos avisos **no** traen archivo; para el detalle escribe `/informe`.
 
+## 6e) Liquidez real en trii (se revisa antes de cada resultado)
+trii ejecuta tus órdenes en la Bolsa de Colombia. Las acciones de EE. UU. que muestra (TSLACO, NVDACO, METACO…) se negocian **muy poco** aquí aunque en Nueva York
+muevan miles de millones: el 5-oct TSLACO negoció 42 acciones en todo el día. `src/liquidez.py` mide lo que de verdad se negocia en el libro local (mediana de 20
+sesiones y días sin negociación) y clasifica: **buena** (≥ $2.000 millones al día), **justa** (≥ $500 millones: sólo con orden límite) o **mala** (mejor no operarla).
+* `/comprar` y los relevos sólo incluyen acciones con liquidez buena.
+* Al registrar una compra el bot te dice la liquidez de esa acción y qué parte del volumen diario sería tu orden.
+* `/cartera` y `/semaforo` te recuerdan lo que tienes y se negocia poco (salir puede costar caro).
+* Regla fija: **orden límite siempre, nunca "a mercado"**. Umbrales en `config.yaml → liquidez`.
+
 ## 6d) Vigía de noticias de la BVC (cada 2 minutos)
 `src/noticias_bvc.py`. Cada 2 minutos, las 24 horas, lee en paralelo (≈ 1 segundo):
 1. **Superfinanciera · Información relevante** (lo que cada emisor está obligado a publicar: es la fuente oficial y la más rápida),

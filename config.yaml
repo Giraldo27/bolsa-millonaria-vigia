@@ -400,6 +400,12 @@ validacion:
 # ======================================================================================================
 # VIGÍA DE NOTICIAS DE LA BVC (cada 2 minutos) Y PROCESO CONTINUO EN LA NUBE
 # ======================================================================================================
+liquidez:                                   # liquidez REAL en trii = lo que se negocia en la Bolsa de Colombia (src/liquidez.py), no en Nueva York
+  dias: 20                                  # sesiones que se miran (se usa la MEDIANA del valor negociado: un día de bloque grande no engaña)
+  buena_cop_mm: 2000                        # "buena": al menos $2.000 millones al día → una orden de $100 M es ≤ 5 % del día
+  justa_cop_mm: 500                         # "justa": entre 500 y 2.000 → sólo con orden límite; por debajo es "mala"
+  max_dias_sin_negociar: 1                  # más días sin negociación que esto, en la ventana, la saca de "buena" y de "justa"
+
 modo:
   solo_bvc: true                            # el bot sólo RECOMIENDA acciones de la BVC (relevos, base, noticias, "qué comprar"). Lo que ya tengas de EE. UU. se sigue vigilando.
 

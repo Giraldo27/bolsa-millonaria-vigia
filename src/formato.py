@@ -543,7 +543,7 @@ def _precio_txt(p: dict[str, Any] | None, abierto: bool) -> str:
 
 
 QUE_HACER_NOTICIA = {
-    "COMPRAR": "Compra {t} ahora, con orden límite. En casos parecidos lo que vino después superó el costo.",
+    "COMPRAR": "Compra {t} ahora, con orden límite (nunca a mercado). En casos parecidos lo que vino después superó el costo.",
     "COMPRAR_MANANA": "Compra {t} en la próxima apertura ({cuando}, a las {hora}) con orden límite, si no abre ya disparada.",
     "NO_PERSEGUIR": "No compres {t} ahora: ya subió, y en casos así lo normal fue que devolviera parte en los días siguientes.",
     "NO_COMPRAR": "No compres {t} solo por esta noticia: en casos parecidos lo que subió después no alcanzó a pagar el costo de entrar y salir.",
@@ -582,7 +582,7 @@ def msg_noticia_bvc(s: Any, ahora: dt.datetime, cfg: dict[str, Any], sugerencia:
 
 
 def msg_que_comprar(banco: list[EntradaBanco], actual: str, mee_actual: float | None, decision: Decision, corte: dict[str, Any] | None, sesiones: int,
-                    senales: list[dict[str, Any]], hora_orden: str, cfg: dict[str, Any], top: int = 5, n_estudio: int | None = None) -> str:
+                    senales: list[dict[str, Any]], hora_orden: str, cfg: dict[str, Any], top: int = 5, n_estudio: int | None = None, liquidez_txt: str | None = None) -> str:
     """/comprar: qué acción de la BVC comprar si quieres moverte, qué esperar y por cuánto tiempo. Ordena por movimiento esperado hasta el próximo corte."""
     costo = cfg["noticias_bvc"]["recomendacion"]["costo_ida_vuelta"]
     L = [f"🛒 {b('¿Qué acción de la BVC comprar?')}", ""]
@@ -607,6 +607,8 @@ def msg_que_comprar(banco: list[EntradaBanco], actual: str, mee_actual: float | 
     L += ["", f"👉 {b('Si vas a comprar una')}: {b(m.ticker)}. {b('Qué esperar')}: que se mueva cerca de ±{pct(m.mee, 1)} hasta {hasta}, para arriba o para abajo "
               f"(no sé hacia dónde: más movimiento es más oportunidad y más riesgo). {b('Cuánto tiempo')}: hasta ese corte; entrar y salir cuesta cerca de {pct(costo, 1)}, "
               "así que no la compres para venderla en uno o dos días.",
+          *([liquidez_txt] if liquidez_txt else []),
+          f"📝 {b('Cómo comprar')}: siempre con orden límite (tú pones el precio máximo), nunca \"a mercado\". Decide antes de abrir la bolsa el precio de entrada y a cuánto sales si sale mal.",
           "", *bloque_decision(decision, actual, hora_orden)]
     if senales:
         L += ["", b("Noticias fuertes de las últimas 24 horas")]
@@ -614,7 +616,7 @@ def msg_que_comprar(banco: list[EntradaBanco], actual: str, mee_actual: float | 
             L.append(f"{'📈' if x['sentido'] > 0 else '📉'} {b(x['ticker'])}: {esc(x['titulo'][:110])} {it('(' + esc(x['fuente']) + ')')}")
         medido = f" (medido en {n_estudio:,} anuncios oficiales)".replace(",", ".") if n_estudio else ""
         L.append(it(f"Comprar después de una noticia no pagó el costo en promedio{medido}: úsalas para entender el movimiento, no para perseguirlo."))
-    L.append(it("Solo acciones de la BVC. Recomendación, no garantía: la orden la das tú en trii."))
+    L.append(it("Solo acciones de la BVC que se negocian bien en trii (liquidez revisada). Recomendación, no garantía: la orden la das tú en trii."))
     return "\n".join(L)
 
 
@@ -644,7 +646,7 @@ Vigilo tu cartera y las noticias de la <b>Bolsa de Colombia (BVC)</b> y te aviso
 No importa si pones el precio en pesos o en dólares, o el total en vez del precio: lo detecto y te muestro lo que entendí.
 
 <b>Lo que puedes preguntar</b> (o toca un botón de /menu)
-/comprar — qué acción de la BVC comprar, qué esperar y por cuánto tiempo
+/comprar — qué acción de la BVC comprar, qué esperar y por cuánto tiempo (sólo las que se negocian bien en trii)
 /noticias — noticias fuertes de la BVC (o /noticias ECOPETROL)
 /semaforo — ¿tus acciones están bien?
 /cartera — tus acciones con precios de hoy

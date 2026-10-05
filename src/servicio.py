@@ -353,7 +353,8 @@ def resp_semaforo(ctx: Contexto, ticker: str | None = None) -> str:
             partes.append(F.msg_semaforo(res, ctx.ahora, ctx.f.traducir))
         except Exception as ex:                                                          # noqa: BLE001 — una acción sin datos no impide ver las demás
             partes.append(f"⚠️ {F.b(F.esc(t))}: no pude calcular su semáforo ahora ({F.esc(type(ex).__name__)}). Prueba /actualizar.")
-    return "\n\n➖➖➖\n\n".join(partes)
+    avisos = avisos_liquidez(ctx, [t for t in lista if t in universo_permitido(ctx.cfg)])
+    return "\n\n➖➖➖\n\n".join(partes) + ("\n\n" + "\n".join(avisos) if avisos else "")
 
 
 def resp_banco(ctx: Contexto) -> str:
@@ -527,12 +528,26 @@ def resp_pos(ctx: Contexto, args: list[str]) -> str:
         return f"❌ {F.esc(ex)}\nEjemplo: {F.b('/pos META 95M 720,5')}"
 
 
+def avisos_liquidez(ctx: Contexto, tickers: list[str], montos: dict[str, float] | None = None, todos: bool = False) -> list[str]:
+    """Una línea por acción cuya liquidez EN TRII no es buena (o por todas, con `todos`). Se revisa antes de dar cualquier resultado: una acción que casi no
+    se negocia en trii cuesta cara de comprar y de vender, por muy líquida que sea en Nueva York."""
+    from . import liquidez as LQ
+    out = []
+    for t in tickers:
+        l = LQ.medir(ctx.f, t, ctx.cfg)
+        if todos or l["nivel"] in (LQ.JUSTA, LQ.MALA):
+            out.append(F.esc(LQ.frase(l, (montos or {}).get(t))))
+    return out
+
+
 def _cartera_txt(ctx: Contexto, est: Estado, titulo: bool = True) -> str:
     from . import cartera as CA
     tasa = CA.trm(ctx.f, ctx.cfg)
     filas = CA.valorar(ctx.f, est.d["cartera"], ctx.cfg, tasa)
     colores = {t: est.color_previo(t) for t in est.tenidos()}
-    return F.msg_cartera(filas, CA.rent_total(filas), tasa, colores, titulo)
+    montos = {x["ticker"]: x["valor_cop"] for x in filas if x["valor_cop"] == x["valor_cop"]}
+    avisos = avisos_liquidez(ctx, [x["ticker"] for x in filas], montos)
+    return F.msg_cartera(filas, CA.rent_total(filas), tasa, colores, titulo) + ("\n" + "\n".join(avisos) if avisos else "")
 
 
 def resp_cartera(ctx: Contexto) -> str:
@@ -589,6 +604,7 @@ def registrar_compra(ctx: Contexto, i: Any, confirmado: bool = False) -> str:
             L.append("⚠️ " + F.it("Precio APROXIMADO (el de hoy): la rentabilidad de esta acción no es exacta."))
         if solo_bvc(ctx.cfg) and t not in ctx.cfg["universe"]["local"]:
             L.append("🇨🇴 " + F.it("No es de la BVC: la vigilo porque la tienes, pero mis recomendaciones de compra son sólo de la BVC."))
+        L += avisos_liquidez(ctx, [t], {t: a["monto_cop"]}, todos=True)
         L.append(F.it("¿Quedó mal? Escribe: me equivoqué"))
         return "\n".join(L) + "\n\n" + _cartera_txt(ctx, leer_estado(ctx))
     except (ValueError, ErrorEstado) as ex:
@@ -689,8 +705,9 @@ def resp_comprar(ctx: Contexto) -> str:
     r = ejecutar_motor(ctx.f, est, ctx.cfg, ctx.ahora, ctx.puntuador, ctx.motor)
     hora = C.hora_orden_manana(C.proxima_sesion(ctx.ahora, ctx.cfg) or ctx.ahora.date(), ctx.cfg)
     from . import noticias_bvc as N
+    liq = avisos_liquidez(ctx, [r.banco[0].c.ticker], {r.banco[0].c.ticker: float(ctx.cfg["capital"]) * 0.25}, todos=True) if r.banco else []
     return F.msg_que_comprar(r.banco, r.activo, r.mee, r.decision, r.corte, C.sesiones_restantes(ctx.ahora, ctx.cfg), senales_recientes(24, ctx.ahora), hora, ctx.cfg,
-                             n_estudio=N.cargar_estudio().get("n_total"))
+                             n_estudio=N.cargar_estudio().get("n_total"), liquidez_txt=liq[0] if liq else None)
 
 
 def mejor_bvc(ctx: Contexto) -> dict[str, Any] | None:
