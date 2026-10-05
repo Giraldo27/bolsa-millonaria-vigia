@@ -589,6 +589,10 @@ def registrar_compra(ctx: Contexto, i: Any, confirmado: bool = False) -> str:
         if a["monto_cop"] is None:
             return "❌ No pude obtener la TRM ahora. Agrega el valor total en pesos al final, por ejemplo: /compra META 8 720,5 23M"
         simb = "US$ " if mon == "USD" else "$ "
+        ya = next((p for p in leer_estado(ctx).d["cartera"] if p["ticker"] == t and p.get("cantidad")), None)
+        if ya and not confirmado and abs(ya["cantidad"] - a["cantidad"]) < 1e-9:           # misma cantidad que ya tienes: casi siempre es una repetición, no otra compra
+            return (f"🤔 {F.b('Ya tienes ' + f'{ya['cantidad']:g} ' + t + ' registradas')}\n¿Compraste {a['cantidad']:g} MÁS (quedarías con {ya['cantidad'] + a['cantidad']:g})?\n"
+                    f"• Si sí, repítelo y agrega la palabra {F.b('confirmo')}.\n• Si sólo querías decirme lo que tienes, escribe: {F.b('tengo ' + f'{a['cantidad']:g} ' + t.lower())}")
         if a["dudoso"] and not confirmado:
             return (f"🤔 {F.b('Antes de guardar, confirma el precio')}\nMe dijiste {simb}{F.n(a['precio'], 2)} por acción de {F.esc(t)}, pero hoy cotiza cerca de {simb}{F.n(q['precio'], 2)}.\n"
                     f"• Si está bien, repítelo y agrega la palabra {F.b('confirmo')}.\n• Si prefieres el precio de hoy, escribe: {F.b('compré ' + f'{a['cantidad']:g} ' + t.lower())}")
@@ -663,6 +667,49 @@ def resp_venta(ctx: Contexto, args: list[str]) -> str:
     return registrar_venta(ctx, Intencion("venta", ticker=resolver(ctx, args[0], leer_estado(ctx).tenidos()), cantidad=cant, fraccion=None if cant else 1.0))
 
 
+def registrar_tenencias(ctx: Contexto, partes: list[Any]) -> str:
+    """"Tengo 8 meta que valen 19.120.000, tengo 300 argos…": deja cada acción con esa cantidad (no suma ni cuenta como operación). El valor que digas se toma
+    como referencia de precio; si no lo dices, el precio de hoy. Lo que no menciones no se toca."""
+    from . import cartera as CA
+    tasa = CA.trm(ctx.f, ctx.cfg)
+    lineas, errores = [], []
+    try:
+        with transaccion(ctx) as e:
+            e.guardar_punto("el ajuste de tu cartera", ctx.ahora)
+            for p in partes:
+                try:
+                    mon = CA.moneda(p.ticker, ctx.cfg)
+                    conv = (tasa if mon == "USD" else 1.0)
+                    if p.monto and conv:
+                        precio, mc = p.monto / p.cantidad / conv, p.monto
+                    else:
+                        previa = next((x for x in e.d["cartera"] if x["ticker"] == p.ticker), None)
+                        q = None
+                        try:
+                            q = ctx.f.cotizacion(p.ticker)
+                        except Exception:                                              # noqa: BLE001
+                            pass
+                        precio = previa["precio"] if previa else (q["precio"] if q else None)
+                        if precio is None:
+                            errores.append(f"{p.ticker}: no pude obtener su precio; dime cuánto valen en total.")
+                            continue
+                        mc = CA.monto_cop(p.ticker, p.cantidad, precio, tasa, ctx.cfg) or (previa or {}).get("monto_cop")
+                    lineas.append("• " + F.esc(e.fijar_posicion(p.ticker, p.cantidad, precio, ctx.ahora, mc, punto=False)))
+                except ErrorEstado as ex:
+                    errores.append(f"{p.ticker}: {ex}")
+    except ErrorEstado as ex:
+        return f"❌ {F.esc(ex)}"
+    if not lineas:
+        return "❌ " + F.esc(" ".join(errores) or "No pude registrar nada.")
+    est = leer_estado(ctx)
+    otras = sorted(est.tenidos() - {p.ticker for p in partes})
+    L = [f"✅ {F.b('Cartera ajustada')} " + F.it("(no cuenta como operación)"), *lineas, *["⚠️ " + F.esc(x) for x in errores]]
+    if otras:
+        L.append(F.it("No toqué: " + ", ".join(otras) + ". Si ya no tienes alguna, escribe por ejemplo: vendí " + otras[0].lower()))
+    L.append(F.it("¿Quedó mal? Escribe: me equivoqué"))
+    return "\n".join(L) + "\n\n" + _cartera_txt(ctx, est)
+
+
 def resp_deshacer(ctx: Contexto) -> str:
     try:
         with transaccion(ctx) as e:
@@ -678,8 +725,10 @@ def resp_texto(ctx: Contexto, texto: str, forzar: str | None = None, solo_lectur
     from .entender import entender
     est = leer_estado(ctx)
     i = entender(texto, ctx.cfg, est.tenidos(), forzar)
-    if solo_lectura and i.tipo in ("deshacer", "rank", "compra", "venta"):
+    if solo_lectura and i.tipo in ("deshacer", "rank", "compra", "venta", "tengo"):
         return {"texto": "🔒 Sólo el dueño del bot puede registrar compras, ventas o el ranking."}
+    if i.tipo == "tengo":
+        return {"texto": registrar_tenencias(ctx, i.partes)}
     if i.tipo == "deshacer":
         return {"texto": resp_deshacer(ctx)}
     if i.tipo == "rank":

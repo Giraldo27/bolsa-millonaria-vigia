@@ -31,6 +31,7 @@ ORDINARIA = {"PFBCOLOM": "BCOLOMBIA", "PFAVAL": "AVAL"}
 _NUM = r"-?\$?\s?\d[\d.,]*"
 _MILLONES = r"(millones|millon|mill|palos|mm|m)\b"
 VERBO_COMPRA = re.compile(r"\b(compre|compro|compra|comprar|comprado|comprando|meti|inverti|adquiri)\b")
+TENGO = re.compile(r"\b(tengo|poseo|me quedan|quedo con|mi posicion (es|son)|mis acciones son)\b")
 VERBO_VENTA = re.compile(r"\b(vendi|vendo|venta|vender|vendido|liquide|sali de|me sali)\b")
 PREGUNTA = re.compile(r"(\b(que|cual|cuales|cuando|como) (accion(es)? )?(compro|comprar|vendo|vender|registro)\b|\b(conviene|deberia|recomiend\w*|vale la pena|pienso|planeo|"
                       r"podria|(voy a|quiero|puedo) (comprar|vender)|si (compro|vendo))\b|\?)")
@@ -59,6 +60,7 @@ class Intencion:
     consulta: str | None = None
     falta: list[str] = field(default_factory=list)
     sugerencias: list[str] = field(default_factory=list)
+    partes: list["Intencion"] = field(default_factory=list)      # "tengo 8 meta… tengo 300 argos…": una por acción
 
 
 def a_numero(crudo: str) -> float:
@@ -155,6 +157,10 @@ def entender(texto: str, cfg: dict[str, Any], tenidos: set[str] | None = None, f
     mc, mv = VERBO_COMPRA.search(t), VERBO_VENTA.search(t)
     # "¿qué compro?", "voy a comprar…", "¿me conviene vender?" son preguntas o planes: NO se registra nada (sólo se anota lo que ya hiciste)
     pregunta = PREGUNTA.search(t) is not None
+    if TENGO.search(t) and not mc and not mv and forzar is None and nums and not pregunta:
+        partes = _tengo(t, cfg)                                                         # "tengo 1200 nuco": es lo que TIENES, no una compra nueva
+        if partes:
+            return Intencion("tengo", partes=partes)
     if forzar == "compra" or (mc and not pregunta and (not mv or mc.start() < mv.start())):
         return _compra(t, nums, cfg, tenidos)
     if forzar == "venta" or (mv and not pregunta):
@@ -191,6 +197,25 @@ def _compra(t: str, nums: list[dict[str, Any]], cfg: dict[str, Any], tenidos: se
     if i.cantidad is None and i.monto is None:
         i.falta.append("cantidad")
     return i
+
+
+def _tengo(t: str, cfg: dict[str, Any]) -> list[Intencion]:
+    """Cada "tengo N acciones de X [que valen V]" del mensaje → (acción, cantidad, valor total en pesos si lo dijo). Los trozos sin acción o sin cantidad se ignoran."""
+    trozos = [x for x in re.split(r"\b(?:tengo|poseo|me quedan|quedo con)\b|[.;\n]| y (?=\d)", t) if x and x.strip()]
+    out: list[Intencion] = []
+    for trozo in trozos:
+        tk, _ = buscar_ticker(trozo, cfg)
+        ns = numeros(trozo)
+        if tk is None or not ns:
+            continue
+        valor = next((x for x in ns if x["millones"] or x["valor"] >= 1e5 or re.search(r"\b(val\w+|valor\w*|por|equivale\w*)\b[^0-9]*$", trozo[max(0, x["pos"] - 30): x["pos"]])), None)
+        cant = next((x for x in ns if x is not valor and not x["pct"]), None)
+        if cant is None or cant["valor"] <= 0:
+            continue
+        if any(p.ticker == tk for p in out):
+            continue
+        out.append(Intencion("tengo", ticker=tk, cantidad=cant["valor"], monto=valor["valor"] if valor else None))
+    return out
 
 
 def _venta(t: str, nums: list[dict[str, Any]], cfg: dict[str, Any], tenidos: set[str] | None) -> Intencion:

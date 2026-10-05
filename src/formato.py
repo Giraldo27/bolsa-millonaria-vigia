@@ -751,6 +751,7 @@ Vigilo tu cartera y las noticias de la <b>Bolsa de Colombia (BVC)</b> y te aviso
 • <i>compré 300 argos a 21500</i> · <i>compré 20 millones de ecopetrol</i>
 • <i>vendí tesla</i> · <i>vendí 100 argos</i>
 • <i>voy 3,5</i> (tu rentabilidad) · <i>el corte está en 8</i>
+• <i>tengo 1200 nuco y 300 argos</i> (para decirme lo que tienes, sin que cuente como compra)
 • <i>me equivoqué</i> (deshace lo último que registraste)
 No importa si pones el precio en pesos o en dólares, o el total en vez del precio: lo detecto y te muestro lo que entendí.
 

@@ -412,13 +412,15 @@ macro_vivo:
   efecto_minimo: 0.003                      # una acción aparece como beneficiada/afectada si el efecto estimado es ≥ 0,3 %
   resumen_manana: "08:10"                   # resumen antes de abrir (días de bolsa): qué pasó de noche, qué significa para tu cartera y qué revisar
   factores:
-    petroleo: {simbolo: "BZ=F", nombre: "el petróleo (Brent)"}
+    # controlar: sp500 = la sensibilidad se mide DESCONTANDO lo que ese día hizo la bolsa de EE. UU. (si no, cualquier acción "de riesgo" parece
+    # depender de Brasil o del petróleo sólo porque todo sube y baja junto)
+    petroleo: {simbolo: "BZ=F", nombre: "el petróleo (Brent)", controlar: sp500}
     dolar: {simbolo: "COP=X", nombre: "el dólar en Colombia"}
     colombia: {simbolo: "ICOLCAP.CL", nombre: "la bolsa de Colombia (Colcap)"}
-    nasdaq: {simbolo: "^NDX", nombre: "las tecnológicas de EE. UU. (Nasdaq)"}
-    sp500: {simbolo: "^GSPC", nombre: "la bolsa de EE. UU. (S&P 500)"}
-    brasil: {simbolo: "EWZ", nombre: "la bolsa de Brasil"}
-    oro: {simbolo: "GC=F", nombre: "el oro"}
+    nasdaq: {simbolo: "^NDX", nombre: "el Nasdaq (tecnológicas de EE. UU.)"}
+    sp500: {simbolo: "^GSPC", nombre: "el S&P 500 (bolsa de EE. UU.)"}
+    brasil: {simbolo: "EWZ", nombre: "la bolsa de Brasil", controlar: sp500}
+    oro: {simbolo: "GC=F", nombre: "el oro", controlar: sp500}
   titulares: {ventana_min: 120, min_fuentes: 2, enfriamiento_min: 180}     # un tema macro se avisa si lo traen ≥ 2 medios; máx. una vez cada 3 h por tema
 
 cambios:                                    # avisos automáticos "cambia esta acción por esta" (src/cambios.py)

@@ -292,6 +292,27 @@ class Estado:
         self.guardar()
         return f"Compra de {t} registrada."
 
+    def fijar_posicion(self, ticker: str, cantidad: float, precio: float, ahora: dt.datetime, monto_cop: float | None = None, punto: bool = True) -> str:
+        """Deja la acción con ESA cantidad (no suma): es para decir "tengo 1200 NUCO" o corregir un registro. No cuenta como operación de actividad.
+        `punto=False` cuando forma parte de un ajuste de varias acciones que ya guardó su punto de deshacer."""
+        t = self._validar_titulo(ticker)
+        if cantidad <= 0 or precio <= 0:
+            raise ErrorEstado("La cantidad y el precio deben ser positivos.")
+        if punto:
+            self.guardar_punto(f"el ajuste de {t} a {cantidad:g} acciones", ahora)
+        monto = float(monto_cop) if monto_cop else float(cantidad * precio)
+        previa = next((p for p in self.d["cartera"] if p["ticker"] == t), None)
+        antes = previa.get("cantidad") if previa else None
+        if previa:
+            previa.update(cantidad=float(cantidad), precio=float(precio), monto_cop=monto)
+        else:
+            self.d["cartera"].append({"ticker": t, "cantidad": float(cantidad), "precio": float(precio), "fecha": ahora.date().isoformat(), "monto_cop": monto})
+        self._reasignar_principal()
+        self.guardar()
+        if antes is None:
+            return f"{t}: {cantidad:g} acciones (no la tenía registrada)."
+        return f"{t}: {cantidad:g} acciones" + (" (ya estaba así)." if antes == cantidad else f" (antes tenía {antes:g} registradas).")
+
     def registrar_venta(self, ticker: str, cantidad: float | None, ahora: dt.datetime) -> str:
         """Vende todo (cantidad=None) o parte de una acción de tu cartera. Cuenta como una operación de actividad."""
         t = ticker.strip().upper()

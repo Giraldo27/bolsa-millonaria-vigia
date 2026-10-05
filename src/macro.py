@@ -73,13 +73,21 @@ def tablero(f: Any, cfg: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 # ------------------------------------------------------------------ sensibilidades medidas
-def _beta(y: pd.Series, x: pd.Series) -> dict[str, float] | None:
-    j = pd.concat([y, x], axis=1, keys=["y", "x"], sort=True).dropna()
+def _beta(y: pd.Series, x: pd.Series, control: pd.Series | None = None) -> dict[str, float] | None:
+    """Cuánto se mueve y por cada unidad de x (mismo día) y qué tan firme es (t). Con `control`, descontando lo que explica esa otra serie."""
+    cols = {"y": y, "x": x} | ({"c": control} if control is not None else {})
+    j = pd.concat(cols, axis=1, sort=True).dropna()
     if len(j) < 120 or j["x"].std() == 0:
         return None
-    b = float(np.cov(j["y"], j["x"])[0, 1] / j["x"].var())
-    res = j["y"] - b * j["x"]
-    se = float(res.std(ddof=2) / (j["x"].std(ddof=1) * np.sqrt(len(j))))
+    X = np.column_stack([np.ones(len(j)), j["x"].to_numpy()] + ([j["c"].to_numpy()] if control is not None else []))
+    coef, *_ = np.linalg.lstsq(X, j["y"].to_numpy(), rcond=None)
+    res = j["y"].to_numpy() - X @ coef
+    gl = len(j) - X.shape[1]
+    try:
+        se = float(np.sqrt((res @ res) / gl * np.linalg.inv(X.T @ X)[1, 1]))
+    except np.linalg.LinAlgError:
+        return None
+    b = float(coef[1])
     return {"beta": b, "t": b / se if se > 0 else 0.0, "n": len(j), "corr": float(j["y"].corr(j["x"]))}
 
 
@@ -106,9 +114,15 @@ def sensibilidades(f: Any, cfg: dict[str, Any], tickers: list[str]) -> dict[str,
             if len(h) < 130:
                 continue
             x = (h.diff() if fc.get("en_puntos") else h.pct_change()).tail(m["dias"] + 10)
+            ctrl = None
+            if fc.get("controlar") in m["factores"]:
+                try:
+                    ctrl = _historia(f, m["factores"][fc["controlar"]]["simbolo"]).pct_change().tail(m["dias"] + 10)
+                except Exception:                                                      # noqa: BLE001 — sin el control se mide sin descontar
+                    ctrl = None
             fila = {}
             for t, y in acciones.items():
-                b = _beta(y, x)
+                b = _beta(y, x, ctrl)
                 if b and abs(b["t"]) >= m["t_minimo"]:
                     fila[t] = b
             out[fk] = fila
