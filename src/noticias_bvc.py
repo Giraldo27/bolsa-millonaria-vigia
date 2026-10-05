@@ -353,6 +353,7 @@ class Lector:
                 salud[nombre] = res is not None
                 self.fallos[nombre] = 0 if res is not None else self.fallos.get(nombre, 0) + 1
                 items += res or []
+        self.ultimos = items                                                           # los reutiliza la revisión macro (src/macro.py) sin volver a descargar
         return items, salud
 
 

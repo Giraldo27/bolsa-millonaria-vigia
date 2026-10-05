@@ -1,0 +1,225 @@
+"""Macroeconomía que mueve tus acciones: qué está pasando AHORA con el petróleo, el dólar, Wall Street, el oro, Brasil y el mercado colombiano, y qué
+acciones suelen ganar o perder con cada uno.
+
+"Quién se beneficia y quién se afecta" NO sale de una lista hecha a mano: se mide. Para cada acción y cada factor se calcula, con los últimos 12 meses,
+cuánto se movió la acción el mismo día por cada 1 % del factor (sensibilidad) y qué tan firme es esa relación; sólo se muestran las relaciones firmes
+(|t| ≥ `macro.t_minimo`). Es la relación del MISMO día: sirve para entender un movimiento y saber a qué estás expuesto, no para adivinar el día siguiente.
+
+Dos disparadores automáticos (src/servicio.tick_macro): (1) un factor se mueve hoy mucho más de lo normal; (2) sale un titular macro importante (Banco de
+la República, inflación, FED, calificación del país, reforma tributaria, petróleo, elecciones en Brasil…): se muestra junto con cómo están reaccionando
+los mercados en ese momento. Funciones sin estado propio: lo ya avisado vive en la memoria de noticias."""
+from __future__ import annotations
+
+import datetime as dt
+import re
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+from .config import group_of
+from .noticias_bvc import Item, norm
+
+UTC = dt.timezone.utc
+
+
+# ------------------------------------------------------------------ factores
+def _historia(f: Any, simbolo: str, dias: int = 420) -> pd.Series:
+    def bajar() -> pd.DataFrame:
+        d = f.yf.download(simbolo, period=f"{dias}d", interval="1d", auto_adjust=False, progress=False, threads=False)
+        if isinstance(d.columns, pd.MultiIndex):
+            d.columns = d.columns.get_level_values(0)
+        if d is None or d.empty:
+            raise RuntimeError("Yahoo devolvió vacío")
+        d.index = pd.DatetimeIndex(d.index).tz_localize(None).normalize()
+        return d[["Close"]].dropna()
+    d = f._con_cache(f"macro_hist|{simbolo}|{dias}", 360, bajar, f"macro {simbolo}")
+    return d["Close"] if d is not None and len(d) else pd.Series(dtype=float)
+
+
+def _ahora(f: Any, simbolo: str) -> dict[str, float] | None:
+    def q() -> dict[str, float]:
+        fi = f.yf.Ticker(simbolo).fast_info
+        return {"precio": float(fi["last_price"]), "previo": float(fi["previous_close"])}
+    try:
+        v = f._con_cache(f"macro_q|{simbolo}", 1.5, q, f"macro {simbolo}")
+        return v if v and v["precio"] > 0 and v["previo"] > 0 else None
+    except Exception:                                                                  # noqa: BLE001
+        return None
+
+
+def tablero(f: Any, cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    """Cada factor macro ahora: cambio de hoy, cuántas veces lo normal es (z) y si es un movimiento fuerte. Un factor sin datos se omite (no se inventa)."""
+    m = cfg["macro_vivo"]
+    out = []
+    for clave, fc in m["factores"].items():
+        q = _ahora(f, fc["simbolo"])
+        try:
+            h = _historia(f, fc["simbolo"])
+        except Exception:                                                              # noqa: BLE001
+            h = pd.Series(dtype=float)
+        if q is None or len(h) < 60:
+            continue
+        en_puntos = bool(fc.get("en_puntos"))                                          # tasas: el cambio se mide en puntos, no en %
+        cambios = (h.diff() if en_puntos else h.pct_change()).dropna().tail(60)
+        sigma = float(cambios.std(ddof=1))
+        r = (q["precio"] - q["previo"]) if en_puntos else (q["precio"] / q["previo"] - 1)
+        if not sigma or sigma != sigma or abs(r) > 0.5 and not en_puntos:              # un salto de más del 50 % es un tick erróneo de Yahoo
+            continue
+        z = r / sigma
+        out.append(dict(clave=clave, nombre=fc["nombre"], cambio=float(r), z=float(z), sigma=sigma, en_puntos=en_puntos, precio=q["precio"],
+                        fuerte=abs(z) >= m["z_alerta"], notable=abs(z) >= m["z_notable"], sube_es=fc.get("sube_es", "sube"), baja_es=fc.get("baja_es", "baja")))
+    return out
+
+
+# ------------------------------------------------------------------ sensibilidades medidas
+def _beta(y: pd.Series, x: pd.Series) -> dict[str, float] | None:
+    j = pd.concat([y, x], axis=1, keys=["y", "x"], sort=True).dropna()
+    if len(j) < 120 or j["x"].std() == 0:
+        return None
+    b = float(np.cov(j["y"], j["x"])[0, 1] / j["x"].var())
+    res = j["y"] - b * j["x"]
+    se = float(res.std(ddof=2) / (j["x"].std(ddof=1) * np.sqrt(len(j))))
+    return {"beta": b, "t": b / se if se > 0 else 0.0, "n": len(j), "corr": float(j["y"].corr(j["x"]))}
+
+
+def sensibilidades(f: Any, cfg: dict[str, Any], tickers: list[str]) -> dict[str, dict[str, dict[str, float]]]:
+    """{factor: {ticker: {beta, t, n, corr}}} con los últimos `macro.dias` días. Sólo quedan las relaciones firmes (|t| ≥ t_minimo). Caché de 12 horas."""
+    m = cfg["macro_vivo"]
+    clave = "macro_sens|" + ",".join(sorted(tickers))
+
+    def calcular() -> dict[str, Any]:
+        acciones = {}
+        for t in tickers:
+            try:
+                d = f.diario(t, m["dias"] + 30)
+                if d is not None and len(d) >= 130:
+                    acciones[t] = d["Close"].pct_change().tail(m["dias"])
+            except Exception:                                                          # noqa: BLE001 — una acción sin datos no tumba el cálculo
+                continue
+        out: dict[str, Any] = {}
+        for fk, fc in m["factores"].items():
+            try:
+                h = _historia(f, fc["simbolo"])
+            except Exception:                                                          # noqa: BLE001
+                continue
+            if len(h) < 130:
+                continue
+            x = (h.diff() if fc.get("en_puntos") else h.pct_change()).tail(m["dias"] + 10)
+            fila = {}
+            for t, y in acciones.items():
+                b = _beta(y, x)
+                if b and abs(b["t"]) >= m["t_minimo"]:
+                    fila[t] = b
+            out[fk] = fila
+        return out
+    v = f._con_cache(clave, 12 * 60, calcular, "sensibilidades macro")
+    return v or {}
+
+
+def impacto(factor: dict[str, Any], sens: dict[str, dict[str, float]], cfg: dict[str, Any], tenidos: set[str]) -> dict[str, Any]:
+    """Para el movimiento de HOY de un factor: qué acciones suelen subir con él (beneficiadas) y cuáles bajar (afectadas), con el efecto estimado
+    (sensibilidad × movimiento). Las de EE. UU. que tienes suman el efecto directo del dólar: en trii se ven en pesos."""
+    filas = []
+    for t, b in sens.items():
+        filas.append(dict(ticker=t, beta=b["beta"], efecto=b["beta"] * factor["cambio"], tengo=t in tenidos, directo=False))
+    if factor["clave"] == "dolar":
+        for t in tenidos:
+            try:
+                global_ = group_of(t, cfg) == "mgc"
+            except KeyError:
+                global_ = False
+            if global_ and not any(x["ticker"] == t for x in filas):
+                filas.append(dict(ticker=t, beta=1.0, efecto=factor["cambio"], tengo=True, directo=True))    # aritmética: precio en pesos = precio en dólares × dólar
+    limite = cfg["macro_vivo"]["efecto_minimo"]
+    benef = sorted([x for x in filas if x["efecto"] >= limite], key=lambda x: -x["efecto"])
+    afect = sorted([x for x in filas if x["efecto"] <= -limite], key=lambda x: x["efecto"])
+    return dict(beneficiadas=benef, afectadas=afect, mias=[x for x in benef + afect if x["tengo"]])
+
+
+# ------------------------------------------------------------------ titulares macro
+# (clave, nombre, factores que suelen reaccionar, patrones sobre el titular sin tildes)
+TEMAS: list[tuple[str, str, list[str], list[str]]] = [
+    ("banrep", "Banco de la República (tasas de interés)", ["dolar", "colombia"],
+     [r"banco de la republica", r"\bbanrep\b", r"junta del emisor", r"tasa de (intervencion|interes) (del|de la|en colombia)", r"tasas de interes en colombia"]),
+    ("inflacion_co", "inflación en Colombia", ["dolar", "colombia"], [r"\bipc\b.*\b(colombia|dane)\b", r"inflacion (en|de) colombia", r"\bdane\b.*inflacion", r"inflacion.*\bdane\b"]),
+    ("fed", "Reserva Federal de EE. UU.", ["nasdaq", "dolar", "tasas_eeuu"], [r"\bfed\b", r"reserva federal", r"\bpowell\b", r"\bfomc\b"]),
+    ("inflacion_eeuu", "inflación o empleo en EE. UU.", ["nasdaq", "dolar", "tasas_eeuu"],
+     [r"inflacion (en|de) (ee\.? ?uu|estados unidos)", r"\bcpi\b", r"nominas no agricolas", r"empleo (en|de) (ee\.? ?uu|estados unidos)"]),
+    ("riesgo_pais", "calificación y finanzas del país", ["dolar", "colombia"],
+     [r"calificacion (de|crediticia de|soberana de) colombia", r"(fitch|moody'?s|s&p|standard).*colombia", r"regla fiscal", r"deficit fiscal", r"reforma tributaria", r"ley de financiamiento"]),
+    ("petroleo", "petróleo", ["petroleo"], [r"\bopep\b", r"precio del (petroleo|crudo|brent)", r"\bbrent\b", r"petroleo (cae|sube|se desploma|se dispara|baja)"]),
+    ("brasil", "elecciones y economía de Brasil", ["brasil"], [r"(elecciones|segunda vuelta|balotaje).*brasil", r"brasil.*(elecciones|segunda vuelta|balotaje)", r"\blula\b", r"banco central de brasil"]),
+    ("dolar", "dólar en Colombia", ["dolar"], [r"dolar (se dispara|se desploma|rompe|supera|cae por debajo|toca)", r"\btrm\b.*(record|maximo|minimo)"]),
+    ("crecimiento", "crecimiento de Colombia", ["colombia"], [r"\bpib\b.*colombia", r"economia colombiana (crecio|cayo|se contrajo)", r"\bise\b.*dane"]),
+]
+NOMBRE_TEMA = {t[0]: t[1] for t in TEMAS}
+FACTORES_TEMA = {t[0]: t[2] for t in TEMAS}
+RUIDO_MACRO = re.compile(r"(precio del dolar hoy|dolar hoy|a como esta|casas de cambio|horoscopo|en vivo|minuto a minuto|opinion|editorial|que es y como|pico y placa|loteria)")
+
+
+def tema_de(titulo: str) -> str | None:
+    t = norm(titulo)
+    if RUIDO_MACRO.search(t):
+        return None
+    for clave, _, _, patrones in TEMAS:
+        if any(re.search(p, t) for p in patrones):
+            return clave
+    return None
+
+
+def titulares_macro(items: list[Item], mem: dict[str, Any], ahora: dt.datetime, cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    """Titulares macro NUEVOS y recientes, agrupados por tema. Devuelve los temas que merecen aviso: los que traen ≥ `min_fuentes` medios distintos (o una
+    sola fuente si `min_fuentes` es 1) y no se avisaron hace poco. Actualiza `mem` (vistos y último aviso por tema)."""
+    m = cfg["macro_vivo"]["titulares"]
+    ahora_utc = ahora.astimezone(UTC)
+    vistos = mem.setdefault("macro_vistos", {})
+    limite = ahora_utc - dt.timedelta(minutes=m["ventana_min"])
+    primera = "macro_base" not in mem
+    por_tema: dict[str, list[Item]] = {}
+    for it in items:
+        if it.origen == "sfc":
+            continue
+        tema = tema_de(it.titulo)
+        if tema is None:
+            continue
+        h = norm(it.titulo)[:120]
+        if h in vistos:
+            continue
+        vistos[h] = ahora_utc.isoformat(timespec="minutes")
+        if it.ts >= limite:
+            por_tema.setdefault(tema, []).append(it)
+    viejo = (ahora_utc - dt.timedelta(days=3)).isoformat()
+    for k in [k for k, v in vistos.items() if v < viejo]:
+        del vistos[k]
+    if primera:
+        mem["macro_base"] = ahora_utc.isoformat(timespec="minutes")                      # la primera vez no se avisa de lo que ya existía
+        return []
+    out = []
+    avisos = mem.setdefault("macro_avisos", {})
+    for tema, its in por_tema.items():
+        fuentes = list(dict.fromkeys(i.fuente for i in its))
+        ult = avisos.get(tema)
+        if len(fuentes) < m["min_fuentes"] or (ult and (ahora_utc - dt.datetime.fromisoformat(ult)).total_seconds() / 60 < m["enfriamiento_min"]):
+            continue
+        avisos[tema] = ahora_utc.isoformat(timespec="minutes")
+        out.append(dict(tema=tema, nombre=NOMBRE_TEMA[tema], items=sorted(its, key=lambda i: -i.ts.timestamp())[:3], fuentes=fuentes, factores=FACTORES_TEMA[tema]))
+    return out
+
+
+def movimientos_nuevos(tab: list[dict[str, Any]], mem: dict[str, Any], ahora: dt.datetime) -> list[dict[str, Any]]:
+    """Factores con un movimiento fuerte que aún no se avisó hoy en ese sentido (o que ya se avisó pero ahora es mucho mayor: +1,5 en z)."""
+    hoy = ahora.date().isoformat()
+    hechos = mem.setdefault("macro_mov", {})
+    out = []
+    for x in tab:
+        if not x["fuerte"]:
+            continue
+        k = f"{hoy}|{x['clave']}|{'+' if x['z'] > 0 else '-'}"
+        previo = hechos.get(k)
+        if previo is None or abs(x["z"]) >= abs(previo) + 1.5:
+            hechos[k] = x["z"]
+            out.append(x)
+    for k in [k for k in hechos if not k.startswith(hoy)]:
+        del hechos[k]
+    return out

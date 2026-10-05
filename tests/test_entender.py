@@ -336,7 +336,7 @@ def test_los_botones_de_consulta_ejecutan_el_comando_y_el_menu_trae_todos(servic
     m = Msg()
     asyncio.run(comandos["menu"].callback(SimpleNamespace(effective_chat=SimpleNamespace(id=DUENO), message=m), SimpleNamespace(args=[])))
     datos = {d for _, d in botones_de(m.teclados[0])}
-    assert {"c:semaforo", "c:cartera", "c:noticias", "c:comprar", "p:compra", "p:venta", "p:rank", "c:estado"} == datos
+    assert {"c:semaforo", "c:cartera", "c:noticias", "c:macro", "c:comprar", "p:compra", "p:venta", "p:rank", "c:estado"} == datos
     todos = set(comandos)
     assert all(d.split(":")[1] in todos for d in datos if d.startswith("c:"))                         # ningún botón apunta a un comando que no existe
 

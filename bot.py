@@ -31,9 +31,10 @@ log = logging.getLogger("bot")
 
 ACTUALIZACIONES = ["message", "callback_query"]                         # mensajes y toques de botones
 MENU = [[("📊 Semáforo", "c:semaforo"), ("💼 Mi cartera", "c:cartera")],
-        [("📰 Noticias BVC", "c:noticias"), ("🛒 Qué comprar", "c:comprar")],
+        [("📰 Noticias BVC", "c:noticias"), ("🌍 Macro", "c:macro")],
+        [("🛒 Qué comprar", "c:comprar"), ("📍 Cómo voy", "c:estado")],
         [("➕ Compré", "p:compra"), ("➖ Vendí", "p:venta")],
-        [("🏁 Mi ranking", "p:rank"), ("📍 Cómo voy", "c:estado")]]
+        [("🏁 Mi ranking", "p:rank")]]
 PENDIENTE_S = 600                                                       # cuánto espera el bot la respuesta a "¿cuántas compraste?"
 
 
@@ -122,6 +123,7 @@ def construir_app(token: str, chat_id: int, cfg: dict | None = None) -> Applicat
     comando("banco", lambda c, a: S.resp_banco(c), "⏳ Buscando los mejores relevos (tarda cerca de 1 minuto)…", pesado=True)
     comando("comprar", lambda c, a: S.resp_comprar(c), "⏳ Comparando las acciones de la BVC (cerca de 1 minuto)…", pesado=True)
     comando("noticias", lambda c, a: S.resp_noticias(c, " ".join(a) if a else None))
+    comando("macro", lambda c, a: S.resp_macro(c), "⏳ Mirando el petróleo, el dólar, Wall Street y Brasil…")
     comando("catalizadores", lambda c, a: S.resp_catalizadores(c), "⏳ Buscando fechas importantes…")
     comando("actualizar", lambda c, a: S.resp_actualizar(c), "🔄 Consultando todo de nuevo con datos frescos (cerca de 1 minuto)…", pesado=True)
     comando("base", lambda c, a: S.resp_base(c), "⏳ Comparando todas las acciones de la BVC (cerca de 1 minuto)…", pesado=True)

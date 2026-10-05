@@ -1,7 +1,9 @@
 """Vigía: UN solo proceso que hace todo y no depende del "cron" de GitHub.
 
   · contesta el chat de Telegram al instante (comandos, texto libre y botones);
-  · cada 2 minutos revisa las noticias de la BVC y avisa las de alto impacto (src/noticias_bvc.py);
+  · cada minuto revisa las noticias de la BVC y avisa las de alto impacto (src/noticias_bvc.py);
+  · cada 2 minutos revisa la macro (petróleo, dólar, Wall Street, Brasil, oro y titulares macro) y dice qué acciones ganan y cuáles pierden (src/macro.py);
+  · cada media hora revisa si conviene un cambio "esta por esta" (src/cambios.py) y, antes de abrir, manda el resumen de la mañana;
   · cada 15 minutos, en horario de bolsa, corre el monitor (semáforo de tu cartera);
   · a las 19:30 de lunes a jueves manda el radar de la noche;
   · respalda el estado cada minuto y medio (en la nube: en la rama `estado`).
@@ -49,6 +51,8 @@ class Vigia:
         self.lector = N.Lector(cfg)
         self.mem = N.Memoria()
         self.sugerencia: dict[str, Any] | None = None
+        self.banco: list[Any] | None = None                                             # candidatas de la BVC (se recalcula cada media hora en horario de bolsa)
+        self._candado_mem = threading.Lock()                                            # noticias y macro comparten la memoria de titulares
         self.parar = asyncio.Event()
         self.rondas = self.avisos = 0
         self._salud: dict[str, bool] = {}
@@ -60,7 +64,8 @@ class Vigia:
     # ---------- tareas (cada una corre en un hilo aparte: nunca bloquean al chat) ----------
     def noticias(self) -> None:
         ctx = S.crear_contexto()
-        msgs = S.tick_noticias(ctx, self.lector, self.mem, self.sugerencia)
+        with self._candado_mem:
+            msgs = S.tick_noticias(ctx, self.lector, self.mem, self.sugerencia)
         self.rondas += 1
         self.avisos += len(msgs)
         salud = self.mem.d.get("salud") or {}
@@ -71,6 +76,30 @@ class Vigia:
             log.info("noticias: %d aviso(s) enviados", len(msgs))
             self.guardar(True)                                                          # lo ya avisado se respalda enseguida: si la máquina muere, no se repite el aviso
 
+    def macro(self) -> None:
+        """Factores macro y titulares macro (reutiliza los titulares que acaba de leer la ronda de noticias)."""
+        ctx = S.crear_contexto()
+        with self._candado_mem:
+            msgs = S.tick_macro(ctx, self.mem, getattr(self.lector, "ultimos", []))
+        if msgs:
+            log.info("macro: %d aviso(s) enviados", len(msgs))
+            self.guardar(True)
+
+    def manana(self) -> None:
+        """Resumen antes de abrir: una vez por día de bolsa, desde la hora configurada y hasta la apertura."""
+        ctx = S.crear_contexto()
+        ahora, h = ctx.ahora, C.horario(ctx.ahora.date(), self.cfg)
+        hh, mm = (int(x) for x in self.cfg["macro_vivo"]["resumen_manana"].split(":"))
+        if h is None or not (dt.time(hh, mm) <= ahora.time() < h[0]) or C.fase(ahora, self.cfg) != "durante":
+            return
+        hoy = ahora.date().isoformat()
+        with S.transaccion(ctx) as e:
+            marca = e.d.setdefault("vigia", {})
+            if marca.get("manana") == hoy:
+                return
+            marca["manana"] = hoy
+        S.enviar_o_encolar(ctx, S.resumen_manana(ctx, self.banco), bot.MENU)
+
     def monitor(self) -> None:
         ctx = S.crear_contexto()
         ctx.salida = lambda t: log.info("monitor: %s", t)
@@ -79,8 +108,15 @@ class Vigia:
     def sugerir(self) -> None:
         """La BVC con más movimiento esperado (para el pie de los avisos de noticias). Es pesada (todas las acciones): sólo en horario de bolsa y cada media hora."""
         ctx = S.crear_contexto()
-        if C.mercado_abierto(ctx.ahora, self.cfg) or self.sugerencia is None:
-            self.sugerencia = S.mejor_bvc(ctx)
+        if not (C.mercado_abierto(ctx.ahora, self.cfg) or self.banco is None):
+            return
+        self.banco = S.banco_bvc(ctx)
+        corte = C.corte_vigente(ctx.ahora, self.cfg)
+        self.sugerencia = dict(ticker=self.banco[0].c.ticker, mee=self.banco[0].c.mee, corte=corte["fecha"]) if (self.banco and corte) else None
+        if self.cfg["cambios"].get("activo"):                                           # ¿hay un cambio "esta por esta" que valga la pena avisar?
+            msgs = S.tick_cambios(ctx, self.banco)
+            if msgs:
+                log.info("cambios: %d aviso(s) enviados", len(msgs))
 
     def radar(self) -> None:
         """Radar de la noche: una vez por día, de lunes a jueves, desde la hora configurada (19:30) y hasta las 23:00."""
@@ -176,6 +212,9 @@ class Vigia:
                       asyncio.create_task(self.bucle("sugerencia", 1800, self.sugerir, 90))]
             if n["activo"]:
                 tareas.append(asyncio.create_task(self.bucle("noticias", n["cada_s"], self.noticias, 5)))
+            if self.cfg["macro_vivo"].get("activo"):
+                tareas.append(asyncio.create_task(self.bucle("macro", self.cfg["macro_vivo"]["cada_s"], self.macro, 40)))
+                tareas.append(asyncio.create_task(self.bucle("resumen de la mañana", 60, self.manana, 150)))
             try:
                 await asyncio.wait_for(self.parar.wait(), timeout=max(self.fin - time.monotonic(), 1.0))
             except asyncio.TimeoutError:

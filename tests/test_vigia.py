@@ -140,7 +140,7 @@ def test_en_la_nube_lo_que_registras_se_respalda_enseguida_y_lo_demas_cada_ciert
 
 
 def test_el_vigia_reparte_las_tareas_del_config():
-    assert CFG["noticias_bvc"]["cada_s"] == 120 and CFG["vigia"]["monitor_cada_min"] == 15           # lo que pidió el usuario: noticias cada 2 minutos
+    assert CFG["noticias_bvc"]["cada_s"] == 60 and CFG["vigia"]["monitor_cada_min"] == 15            # lo que pidió el usuario: noticias cada minuto
     assert CFG["vigia"]["duracion_max_min"] * 60 > CFG["vigia"]["vida_minima_s"] * 10
 
 

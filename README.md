@@ -125,6 +125,19 @@ Además del radar de las 19:30, el monitor (cada 15 min en horario de trii) avis
 | ⚠️ Salud de fuentes | una fuente cae o se recupera | 60 min |
 Todo se ajusta en `config.yaml → monitor.eventos` (`activo: false` apaga los avisos de novedades; el tope `max_por_corrida` limita cuántos salen juntos). Estos avisos **no** traen archivo; para el detalle escribe `/informe`.
 
+## 6f) Macro, cambios sugeridos y resumen de la mañana (todo automático)
+* **Macro (`/macro`, `src/macro.py`).** Cada 2 minutos mira el petróleo, el dólar, el Colcap, Wall Street, Brasil y el oro. Si alguno se mueve ≥ 2 veces lo normal, o si
+  un tema macro (Banco de la República, inflación, FED, calificación del país, reforma tributaria, OPEP, Brasil) sale en 2 o más medios, te avisa con las **acciones
+  beneficiadas y afectadas**. Esa lista no está hecha a mano: se mide cuánto se movió cada acción con cada factor en los últimos 12 meses (p. ej. Ecopetrol ≈ 0,3 % por
+  cada 1 % del Brent; NUCO ≈ 1 % por cada 1 % de la bolsa de Brasil; Mineros ≈ 0,9 % por cada 1 % del oro) y sólo se muestran las relaciones firmes.
+  Es contexto del mismo día, no una señal de compra.
+* **Cambios "esta por esta" (`src/cambios.py`).** Avisa solo cuando hay un motivo que paga el costo del cambio: hoy, **salir de una acción que casi no se negocia en trii**
+  hacia la mejor de la BVC con liquidez buena (y la Regla Maestra, cuando tu ranking lo pide). **No** recomienda pasarse a "la que va subiendo más": se midió
+  (`python run_estudio_relativo.py`) y en la BVC las que más subieron rindieron 0,9 % menos que las rezagadas en los 3 días siguientes.
+* **Resumen de la mañana (08:10, días de bolsa).** Qué pasó de noche y a quién le pega, calendario del día, lo que se negocia poco, cambios sugeridos y el recordatorio de
+  operar con plan y orden límite.
+* **Noticias cada minuto** (antes cada 2). Ajustes en `config.yaml → macro_vivo`, `cambios`, `noticias_bvc.cada_s`.
+
 ## 6e) Liquidez real en trii (se revisa antes de cada resultado)
 trii ejecuta tus órdenes en la Bolsa de Colombia. Las acciones de EE. UU. que muestra (TSLACO, NVDACO, METACO…) se negocian **muy poco** aquí aunque en Nueva York
 muevan miles de millones: el 5-oct TSLACO negoció 42 acciones en todo el día. `src/liquidez.py` mide lo que de verdad se negocia en el libro local (mediana de 20

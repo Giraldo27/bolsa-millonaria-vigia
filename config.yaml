@@ -364,6 +364,7 @@ fuentes:
 
 eventos_macro:                              # calendario editable; 'verificada: false' = confirmar en la fuente
   - {fecha: "2026-10-28", hora: "13:00", evento: "Decisión de la FED (FOMC)", fuente: "federalreserve.gov", verificada: true}
+  - {fecha: "2026-10-26", hora: "", evento: "Primer día de bolsa tras la segunda vuelta en Brasil (domingo 25): NUCO puede abrir con un salto fuerte", fuente: "análisis del día 1 del usuario", verificada: false}
   - {fecha: "2026-10-30", hora: "", evento: "Decisión de BanRep (junta directiva)", fuente: "banrep.gov.co", verificada: false}
   - {fecha: "2026-10-14", hora: "07:30", evento: "IPC de EE. UU. (CPI de septiembre)", fuente: "bls.gov", verificada: false}
   - {fecha: "2026-11-06", hora: "07:30", evento: "Empleo de EE. UU. (nóminas de octubre)", fuente: "bls.gov", verificada: false}
@@ -400,6 +401,31 @@ validacion:
 # ======================================================================================================
 # VIGÍA DE NOTICIAS DE LA BVC (cada 2 minutos) Y PROCESO CONTINUO EN LA NUBE
 # ======================================================================================================
+# ----------------------------- Macroeconomía en vivo (src/macro.py) -----------------------------
+macro_vivo:
+  activo: true
+  cada_s: 120                               # cada cuánto se revisan los factores y los titulares macro
+  dias: 250                                 # historia con la que se mide la sensibilidad de cada acción a cada factor (≈ 12 meses)
+  t_minimo: 3.0                             # sólo se muestran relaciones firmes (|t| ≥ 3): con 25 acciones × 8 factores, menos que eso sería ruido
+  z_alerta: 2.0                             # aviso automático si un factor se mueve hoy ≥ 2 veces lo normal
+  z_notable: 1.0                            # en el resumen se comentan los factores que se movieron ≥ 1 vez lo normal
+  efecto_minimo: 0.003                      # una acción aparece como beneficiada/afectada si el efecto estimado es ≥ 0,3 %
+  resumen_manana: "08:10"                   # resumen antes de abrir (días de bolsa): qué pasó de noche, qué significa para tu cartera y qué revisar
+  factores:
+    petroleo: {simbolo: "BZ=F", nombre: "el petróleo (Brent)"}
+    dolar: {simbolo: "COP=X", nombre: "el dólar en Colombia"}
+    colombia: {simbolo: "ICOLCAP.CL", nombre: "la bolsa de Colombia (Colcap)"}
+    nasdaq: {simbolo: "^NDX", nombre: "las tecnológicas de EE. UU. (Nasdaq)"}
+    sp500: {simbolo: "^GSPC", nombre: "la bolsa de EE. UU. (S&P 500)"}
+    brasil: {simbolo: "EWZ", nombre: "la bolsa de Brasil"}
+    oro: {simbolo: "GC=F", nombre: "el oro"}
+  titulares: {ventana_min: 120, min_fuentes: 2, enfriamiento_min: 180}     # un tema macro se avisa si lo traen ≥ 2 medios; máx. una vez cada 3 h por tema
+
+cambios:                                    # avisos automáticos "cambia esta acción por esta" (src/cambios.py)
+  activo: true
+  repetir_h: 24                             # el mismo cambio no se repite antes de este tiempo
+  niveles: [mala]                           # liquidez en trii que dispara el aviso (agrega "justa" si quieres que también avise de esas)
+
 liquidez:                                   # liquidez REAL en trii = lo que se negocia en la Bolsa de Colombia (src/liquidez.py), no en Nueva York
   dias: 20                                  # sesiones que se miran (se usa la MEDIANA del valor negociado: un día de bloque grande no engaña)
   buena_cop_mm: 2000                        # "buena": al menos $2.000 millones al día → una orden de $100 M es ≤ 5 % del día
@@ -418,7 +444,7 @@ vigia:                                      # proceso continuo (vigia.py): conte
 
 noticias_bvc:
   activo: true
-  cada_s: 120                               # una ronda cada 2 minutos, las 24 horas (las empresas publican hechos relevantes también fuera del horario)
+  cada_s: 60                                # una ronda cada minuto, las 24 horas (pedido del usuario; las empresas publican hechos relevantes también fuera del horario)
   ventana_min: 180                          # sólo cuentan noticias publicadas en las últimas 3 horas (lo más viejo ya está en el precio)
   umbral_alto: 0.60                         # puntaje mínimo (0–1) para considerarla de ALTO impacto y avisarte
   umbral_negativa_sin_tener: 0.80           # mala noticia de una acción que NO tienes: sólo se avisa si es muy fuerte

@@ -5,6 +5,7 @@ NUNCA envía órdenes: sólo alertas y recomendaciones (trii no tiene API)."""
 from __future__ import annotations
 
 import datetime as dt
+import json
 import re
 import shutil
 import tempfile
@@ -723,6 +724,122 @@ def mejor_bvc(ctx: Contexto) -> dict[str, Any] | None:
 
 
 BOTONES_NOTICIA = [[("🛒 Qué comprar", "c:comprar"), ("💼 Mi cartera", "c:cartera")]]
+BOTONES_MACRO = [[("🌍 Macro ahora", "c:macro"), ("💼 Mi cartera", "c:cartera")]]
+
+
+# ------------------------------------------------------------------ macro y cambios sugeridos
+def _tickers_macro(ctx: Contexto, est: Estado) -> list[str]:
+    """Acciones a las que se les mide la sensibilidad macro: las de la BVC que el bot puede recomendar + las que tienes."""
+    from .construir import universo_candidatos
+    return list(dict.fromkeys(universo_candidatos(ctx.cfg) + sorted(est.tenidos())))
+
+
+def panorama_macro(ctx: Contexto) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    """(tablero de factores ahora, {factor: quién se beneficia y quién se afecta hoy}) para los factores que se movieron."""
+    from . import macro as M
+    est = leer_estado(ctx)
+    tab = M.tablero(ctx.f, ctx.cfg)
+    if not any(x["notable"] for x in tab):
+        return tab, {}
+    sens = M.sensibilidades(ctx.f, ctx.cfg, _tickers_macro(ctx, est))
+    return tab, {x["clave"]: M.impacto(x, sens.get(x["clave"], {}), ctx.cfg, est.tenidos()) for x in tab if x["notable"]}
+
+
+def resp_macro(ctx: Contexto) -> str:
+    tab, imp = panorama_macro(ctx)
+    return F.msg_macro_tablero(tab, imp, ctx.ahora)
+
+
+def tick_macro(ctx: Contexto, mem: Any, items: list[Any] | None = None) -> list[str]:
+    """Una revisión macro (cada 2 minutos): avisa si un factor se mueve mucho más de lo normal o si sale un titular macro importante, y en ambos casos
+    dice qué acciones se benefician y cuáles se afectan. `items` = titulares ya leídos por el vigía de noticias (no se vuelven a descargar)."""
+    from . import macro as M
+    if not ctx.cfg["macro_vivo"].get("activo"):
+        return []
+    tab = M.tablero(ctx.f, ctx.cfg)
+    fuertes = M.movimientos_nuevos(tab, mem.d, ctx.ahora)
+    temas = M.titulares_macro(items or [], mem.d, ctx.ahora, ctx.cfg)
+    mem.sucia = True
+    if not fuertes and not temas:
+        return []
+    est = leer_estado(ctx)
+    sens = M.sensibilidades(ctx.f, ctx.cfg, _tickers_macro(ctx, est))
+    imp = {x["clave"]: M.impacto(x, sens.get(x["clave"], {}), ctx.cfg, est.tenidos()) for x in tab if x["notable"]}
+    mensajes = [F.msg_macro_movimiento(x, imp[x["clave"]], ctx.ahora) for x in fuertes]
+    mensajes += [F.msg_macro_titular(g, tab, imp, ctx.ahora) for g in temas]
+    for m in mensajes:
+        enviar_o_encolar(ctx, m, BOTONES_MACRO)
+    if not ctx.dry:
+        mem.guardar()
+    return mensajes
+
+
+def banco_bvc(ctx: Contexto) -> list[Any]:
+    """Candidatas de la BVC (líquidas en trii, sin alerta, que no tienes) de mayor a menor movimiento esperado hasta el próximo corte."""
+    est = leer_estado(ctx)
+    if C.corte_vigente(ctx.ahora, ctx.cfg) is None:
+        return []
+    from .relevo import construir_banco
+    cands = candidatos_banco(ctx.f, ctx.cfg, ctx.ahora, est.activo, None, ctx.puntuador, ctx.motor)
+    return construir_banco(cands, est.activo, ctx.cfg, set(est.tenidos()))
+
+
+def cambios_sugeridos(ctx: Contexto, banco: list[Any]) -> list[dict[str, Any]]:
+    """Cambios "esta por esta" que hoy tienen un motivo que justifica el costo (ver src/cambios.py)."""
+    from . import cambios as CB
+    from . import cartera as CA
+    from . import liquidez as LQ
+    est = leer_estado(ctx)
+    tenidos = sorted(est.tenidos())
+    if not tenidos:
+        return []
+    liq = {t: LQ.medir(ctx.f, t, ctx.cfg) for t in tenidos}
+    try:
+        montos = {x["ticker"]: x["valor_cop"] for x in CA.valorar(ctx.f, est.d["cartera"], ctx.cfg) if x["valor_cop"] == x["valor_cop"]}
+    except Exception:                                                                  # noqa: BLE001
+        montos = {}
+    sugs = CB.sugerencias(tenidos, liq, banco, montos, ctx.cfg)
+    for s in sugs:
+        s["liquidez_a"] = LQ.frase(LQ.medir(ctx.f, s["a"], ctx.cfg), montos.get(s["de"]))
+    return sugs
+
+
+def tick_cambios(ctx: Contexto, banco: list[Any]) -> list[str]:
+    """Avisa los cambios sugeridos que no se han avisado en las últimas 24 horas."""
+    from . import cambios as CB
+    sugs = cambios_sugeridos(ctx, banco)
+    memoria = {"cambios_avisados": dict(leer_estado(ctx).d.get("cambios_avisados", {}))}
+    antes = json.dumps(memoria, sort_keys=True)
+    pend = CB.nuevos(sugs, memoria, ctx.ahora, ctx.cfg)
+    if json.dumps(memoria, sort_keys=True) != antes:                                   # sólo se escribe el estado si de verdad cambió algo
+        with transaccion(ctx) as e:
+            e.d["cambios_avisados"] = memoria["cambios_avisados"]
+    mensajes = [F.msg_cambio(s, CB.estudio_relativo(3)) for s in pend]
+    for m in mensajes:
+        enviar_o_encolar(ctx, m, [[("🛒 Qué comprar", "c:comprar"), ("💼 Mi cartera", "c:cartera")]])
+    return mensajes
+
+
+def resumen_manana(ctx: Contexto, banco: list[Any] | None = None) -> str:
+    """Resumen antes de abrir: macro de la noche, calendario de hoy, lo que se negocia poco, cambios sugeridos y la regla de operar con plan."""
+    est = leer_estado(ctx)
+    tab, imp = panorama_macro(ctx)
+    hoy = ctx.ahora.date()
+    fechas = [f"🏦 {F.esc(m['evento'])}" + (f" ({F.esc(m['hora'])})" if m.get("hora") else "") + (" " + F.it("(fecha por confirmar)") if m.get("verificada") is False else "")
+              for m in ctx.cfg.get("eventos_macro", []) if str(m["fecha"]) == hoy.isoformat()]
+    corte = C.corte_vigente(ctx.ahora, ctx.cfg)
+    if corte and corte["fecha"] == hoy:
+        fechas.append("🏁 " + F.b("Hoy es el corte") + ": al cierre sólo avanzan los mejores del ranking.")
+    try:
+        cambios = cambios_sugeridos(ctx, banco or [])
+    except Exception:                                                                  # noqa: BLE001 — el resumen sale aunque falle una parte
+        cambios = []
+    try:
+        liq = avisos_liquidez(ctx, sorted(est.tenidos()))
+    except Exception:                                                                  # noqa: BLE001
+        liq = []
+    h = C.horario(hoy, ctx.cfg)
+    return F.msg_resumen_manana(F.msg_macro_tablero(tab, imp, ctx.ahora), fechas, liq, cambios, f"{h[0]:%H:%M}" if h else "—", est.rent.get("mia") is None)
 
 
 def tick_noticias(ctx: Contexto, lector: Any, mem: Any, sugerencia: dict[str, Any] | None = None) -> list[str]:
@@ -730,6 +847,7 @@ def tick_noticias(ctx: Contexto, lector: Any, mem: Any, sugerencia: dict[str, An
     from . import noticias_bvc as N
     est = leer_estado(ctx)
     senales, salud = N.ronda(lector, mem, ctx.f, ctx.ahora, ctx.cfg, est.tenidos())
+    mem.ultimos_items = getattr(lector, "ultimos", [])                                 # los titulares recién leídos también sirven para la revisión macro
     mensajes = []
     for s in senales:
         botones = BOTONES_NOTICIA

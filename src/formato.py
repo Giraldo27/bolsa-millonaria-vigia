@@ -635,6 +635,115 @@ def msg_noticias_bvc_recientes(senales: list[dict[str, Any]], salud: dict[str, b
     return "\n".join(L)
 
 
+# ------------------------------------------------------------------ macroeconomía y cambios sugeridos
+def _mov_factor(x: dict[str, Any]) -> str:
+    """'el petróleo (Brent) cae 3,2% (2,1 veces lo normal)'."""
+    verbo = "sube" if x["cambio"] > 0 else "cae"
+    cuanto = f"{n(abs(x['cambio']), 2)} puntos" if x["en_puntos"] else pct(abs(x["cambio"]), 1)
+    return f"{x['nombre']} {verbo} {cuanto}" + (f" ({veces(abs(x['z']))} lo normal)" if abs(x["z"]) >= 1.5 else "")
+
+
+def _lista_impacto(filas: list[dict[str, Any]], max_n: int = 5) -> str:
+    return ", ".join(f"{b(x['ticker'])}{' (la tienes)' if x['tengo'] else ''} {pct(x['efecto'], 1, True)}" for x in filas[:max_n]) + ("…" if len(filas) > max_n else "")
+
+
+def bloque_impacto(factor: dict[str, Any], imp: dict[str, Any]) -> list[str]:
+    """Quién gana y quién pierde con el movimiento de hoy de un factor (según lo medido en los últimos 12 meses)."""
+    L = []
+    if imp["beneficiadas"]:
+        L.append(f"🟢 {b('Beneficiadas')}: {_lista_impacto(imp['beneficiadas'])}")
+    if imp["afectadas"]:
+        L.append(f"🔴 {b('Afectadas')}: {_lista_impacto(imp['afectadas'])}")
+    if not L:
+        L.append("Ninguna acción de la BVC ni de tu cartera ha mostrado una relación firme con este factor en los últimos 12 meses.")
+    return L
+
+
+def msg_macro_movimiento(factor: dict[str, Any], imp: dict[str, Any], ahora: dt.datetime) -> str:
+    """Aviso automático: un factor macro se está moviendo hoy mucho más de lo normal."""
+    L = [f"🌍 {b('Movimiento macro fuerte')}  {it(f'{fecha(ahora)} {ahora:%H:%M}')}", f"{b('¿Qué pasó?')} Hoy {esc(_mov_factor(factor))}.", "",
+         b("¿A quién le pega?") + " " + it("(efecto estimado de hoy: lo que cada acción suele moverse con este factor)"), *bloque_impacto(factor, imp)]
+    if imp["mias"]:
+        L += ["", f"💼 {b('En tu cartera')}: " + ", ".join(f"{b(x['ticker'])} {pct(x['efecto'], 1, True)}" + (" (por el dólar: en trii se ve en pesos)" if x.get("directo") else "") for x in imp["mias"]) + "."]
+    L += ["", f"👉 {b('Qué hacer')}: nada por reflejo. Es para que entiendas por qué se mueven tus acciones: cuando lees esto el precio ya lo está recogiendo, y en la BVC "
+              "comprar lo que acaba de subir ha salido peor que esperar.", it("Todos los factores ahora: /macro")]
+    return "\n".join(L)
+
+
+def msg_macro_titular(g: dict[str, Any], tab: list[dict[str, Any]], impactos: dict[str, dict[str, Any]], ahora: dt.datetime) -> str:
+    """Aviso automático: titular macro importante + cómo están reaccionando los mercados + acciones expuestas."""
+    ahora_utc = ahora.astimezone(dt.timezone.utc)
+    L = [f"🏦 {b('Noticia macro: ' + g['nombre'])}  {it(f'{fecha(ahora)} {ahora:%H:%M}')}"]
+    for x in g["items"]:
+        L.append(f"📰 {esc(x.titulo[:220])} {it('(' + esc(x.fuente) + ', ' + hace(x.ts.isoformat(), ahora_utc) + ')')}")
+    ligados = [x for x in tab if x["clave"] in g["factores"]]
+    movidos = [x for x in ligados if x["notable"]]
+    L.append("")
+    if movidos:
+        L.append(f"{b('Cómo reacciona el mercado ahora')}: " + "; ".join(esc(_mov_factor(x)) for x in movidos) + ".")
+        for x in movidos:
+            imp = impactos.get(x["clave"])
+            if imp and (imp["beneficiadas"] or imp["afectadas"]):
+                L += [it(f"Por {x['nombre']}:"), *bloque_impacto(x, imp)]
+    else:
+        nombres = ", ".join(x["nombre"] for x in ligados) or "los mercados"
+        L.append(f"{b('Cómo reacciona el mercado ahora')}: por ahora {esc(nombres)} se mueven dentro de lo normal. El titular todavía no está moviendo los precios.")
+    L += ["", f"👉 {b('Qué hacer')}: nada por el titular. Si de verdad pesa, lo verás en los precios y te aviso con el movimiento y las acciones afectadas.",
+          it("Todos los factores ahora: /macro")]
+    return "\n".join(L)
+
+
+def msg_macro_tablero(tab: list[dict[str, Any]], impactos: dict[str, dict[str, Any]], ahora: dt.datetime, titulo: str = "Macro ahora") -> str:
+    """/macro y el resumen de la mañana: cada factor y, para los que se movieron, quién se beneficia y quién se afecta."""
+    if not tab:
+        return f"🌍 {b(titulo)}: no pude consultar los datos macro ahora. Prueba de nuevo en unos minutos."
+    L = [f"🌍 {b(titulo)}  {it(f'{fecha(ahora)} {ahora:%H:%M}')}"]
+    for x in sorted(tab, key=lambda x: -abs(x["z"])):
+        marca = "🔥" if x["fuerte"] else ("▫️" if not x["notable"] else ("🔺" if x["cambio"] > 0 else "🔻"))
+        txt = _mov_factor(x)
+        L.append(f"{marca} {esc(txt[0].upper() + txt[1:])}" + ("" if x["notable"] else " — normal"))
+    movidos = [x for x in sorted(tab, key=lambda x: -abs(x["z"])) if x["notable"]]
+    if not movidos:
+        L += ["", "Nada se mueve más de lo normal: hoy la macro no está empujando a tus acciones."]
+    for x in movidos[:3]:
+        imp = impactos.get(x["clave"])
+        if imp and (imp["beneficiadas"] or imp["afectadas"]):
+            L += ["", it(f"Por {x['nombre']}:"), *bloque_impacto(x, imp)]
+    L += ["", it("Efecto estimado = lo que cada acción suele moverse el mismo día con ese factor (medido en los últimos 12 meses). Es contexto, no una señal de compra.")]
+    return "\n".join(L)
+
+
+def msg_cambio(c: dict[str, Any], rel: dict[str, Any] | None = None) -> str:
+    """Aviso automático "cambia esta acción por esta". Sólo sale con un motivo que justifica pagar el costo del cambio (hoy: liquidez mala en trii)."""
+    L = [f"🔁 {b('Cambio sugerido: ' + c['de'] + ' → ' + c['a'])}", "",
+         f"{b('¿Por qué?')} {esc(c['motivo'])}",
+         f"{b('¿Por qué ' + c['a'] + '?')} {esc(c['por_que_a'])}"]
+    if c.get("liquidez_a"):
+        L.append(esc(c["liquidez_a"]))
+    L += ["", f"👉 {b('Cómo hacerlo')}: vende {esc(c['de'])} con orden límite (pon tu precio y ten paciencia: si la vendes a mercado regalas plata) y compra {esc(c['a'])} "
+              "también con orden límite. Luego escríbeme: " + b(f"vendí {c['de'].lower()}") + " y " + b(f"compré … {c['a'].lower()}") + "."]
+    if rel:
+        L.append(it(f"No elijo \"la que más viene subiendo\": en la BVC, las que más subieron en {rel['k']} días rindieron {pct(abs(rel['dif']), 1)} menos que las rezagadas "
+                    f"en los {rel['k']} siguientes (medido en {rel['n']} períodos)."))
+    L.append(it("Es una recomendación, no una garantía. La orden la das tú en trii."))
+    return "\n".join(L)
+
+
+def msg_resumen_manana(tablero_txt: str, fechas: list[str], avisos_liq: list[str], cambios: list[dict[str, Any]], hora_apertura: str, sin_ranking: bool) -> str:
+    """Resumen automático antes de abrir la bolsa: qué pasó de noche, qué hay hoy y qué revisar antes de operar."""
+    L = [f"🌅 {b('Antes de abrir')} {it('(la bolsa abre a las ' + hora_apertura + ')')}", "", tablero_txt.replace("Macro ahora", "Qué pasó mientras dormías", 1)]
+    if fechas:
+        L += ["", b("Hoy en el calendario"), *fechas]
+    if avisos_liq:
+        L += ["", b("Ojo con lo que se negocia poco"), *avisos_liq]
+    if cambios:
+        L += ["", b("Cambios sugeridos"), *[f"🔁 {b(c['de'] + ' → ' + c['a'])}: {esc(c['motivo'])}" for c in cambios]]
+    L += ["", f"📝 {b('Si vas a operar hoy')}: decide AHORA qué, a qué precio máximo y a cuánto sales si sale mal. Órdenes límite, nunca a mercado. Si no tienes un motivo claro, no operes."]
+    if sin_ranking:
+        L.append("🏁 Aún no sé cómo vas: escríbeme " + b("voy -0,1 y el corte está en 1,5") + " (con tus números) para decirte si conviene cambiar.")
+    return "\n".join(L)
+
+
 AYUDA = """🤖 <b>Cómo usar este bot</b>
 Vigilo tu cartera y las noticias de la <b>Bolsa de Colombia (BVC)</b> y te aviso solo cuando pasa algo importante. <b>Yo nunca compro ni vendo</b>: las órdenes las das tú en trii.
 
@@ -648,14 +757,17 @@ No importa si pones el precio en pesos o en dólares, o el total en vez del prec
 <b>Lo que puedes preguntar</b> (o toca un botón de /menu)
 /comprar — qué acción de la BVC comprar, qué esperar y por cuánto tiempo (sólo las que se negocian bien en trii)
 /noticias — noticias fuertes de la BVC (o /noticias ECOPETROL)
+/macro — petróleo, dólar, Wall Street, Brasil… y qué acciones ganan o pierden con eso
 /semaforo — ¿tus acciones están bien?
 /cartera — tus acciones con precios de hoy
 /estado — cómo vas en el concurso
 /detalle · /catalizadores · /informe · /actualizar — para mirar más a fondo
 
 <b>Los avisos que te mando solo</b>
-🚨 noticia de alto impacto de una empresa de la BVC (reviso cada 2 minutos)
-🔴 una acción tuya cae fuerte por su cuenta · 🌙 el radar de las 19:30
+🚨 noticia de alto impacto de una empresa de la BVC (reviso cada minuto)
+🌍 movimiento o noticia macro fuerte, con las acciones beneficiadas y afectadas
+🔁 cambio sugerido (por ejemplo, salir de una acción que casi no se negocia en trii)
+🌅 resumen antes de abrir · 🔴 una acción tuya cae fuerte · 🌙 radar de las 19:30
 
 <b>Los colores del semáforo</b>
 🟢 todo normal · 🔵 cae el mercado, no tu acción · 🟡 cae sola: vigila

@@ -102,13 +102,15 @@ class Estado:
                 fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
                 os.close(fd)
                 break
-            except FileExistsError:
+            except (FileExistsError, PermissionError):                      # en Windows, crear el candado justo mientras otro hilo lo borra da "permiso denegado"
                 try:                                                        # candado huérfano (un proceso murió): se limpia
                     if time.time() - lock.stat().st_mtime > cfg["estado"]["lock_timeout_s"] * 2:
                         lock.unlink()
                         continue
                 except FileNotFoundError:
                     continue
+                except PermissionError:                                     # el candado está a medio borrar: se reintenta, pero respetando el tiempo límite
+                    pass
                 if time.monotonic() > limite:
                     raise ErrorEstado("No se pudo obtener el candado de state.json (otro proceso lo está usando). Intenta de nuevo.")
                 time.sleep(0.05)
