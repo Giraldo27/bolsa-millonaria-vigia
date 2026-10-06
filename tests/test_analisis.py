@@ -163,24 +163,23 @@ def test_el_bot_tiene_los_tres_comandos_y_la_ayuda_los_explica():
         assert f'comando("{nombre}"' in fuente and f"/{nombre}" in F.AYUDA
 
 
-# =============================== /variaciones: el resumen del día ===============================
-def test_las_variaciones_separan_lo_tuyo_lo_que_pasa_el_filtro_y_lo_descartado(c, monkeypatch):
+# =============================== /variaciones: la rentabilidad de cada acción ===============================
+def test_las_variaciones_muestran_la_rentabilidad_de_cada_accion_hoy_en_el_concurso_y_en_el_mes(c, monkeypatch):
     from src import construir as CO
-    monkeypatch.setattr(CO, "universo_candidatos", lambda cfg: ["ECOPETROL", "PFBCOLOM", "PFSURA", "TERPEL", "BVC"])
+    monkeypatch.setattr(CO, "universo_candidatos", lambda cfg: ["ECOPETROL", "PFBCOLOM", "TERPEL", "BVC"])
     ayer = dt.date(2026, 10, 5)
-    datos = {"NUCO": (0.019, True), "ECOPETROL": (-0.013, True), "PFBCOLOM": (0.006, True), "PFSURA": (0.007, True), "TERPEL": (0.021, False)}
-    monkeypatch.setattr(A, "_variacion", lambda ctx_, t: dict(cambio=datos[t][0], es_hoy=datos[t][1], fecha=AHORA.date() if datos[t][1] else ayer) if t in datos else None)
-    niveles = {"NUCO": dict(nivel=LQ.JUSTA), "ECOPETROL": dict(nivel=LQ.BUENA), "PFBCOLOM": dict(nivel=LQ.BUENA), "PFSURA": dict(nivel=LQ.JUSTA, a_ratos=True), "TERPEL": dict(nivel=LQ.MALA)}
-    monkeypatch.setattr(LQ, "medir", lambda f, t, cfg: dict(ticker=t, **niveles[t]))
+    datos = {"NUCO": (-0.034, True, 0.094, 0.21), "ECOPETROL": (-0.011, True, 0.004, -0.05), "PFBCOLOM": (0.011, True, 0.02, 0.08), "TERPEL": (0.025, False, None, None)}
+    monkeypatch.setattr(A, "_rentabilidad", lambda ctx_, t: dict(zip(("hoy", "es_hoy", "concurso", "mes"), datos[t]), fecha=AHORA.date() if datos[t][1] else ayer) if t in datos else None)
     monkeypatch.setattr(type(S.leer_estado(c)), "tenidos", lambda self: {"NUCO"})
     t = F.plano(A.resp_variaciones(c))
-    mias, resto = t.split("✅ Pasan el filtro de liquidez (2)")
-    aptas, fuera = resto.split("⛔ Descartadas por liquidez (2)")
-    assert "💼 Las que tienes" in mias and "🟢 NUCO +1,9% · se negocia poco" in mias
-    assert aptas.index("🟢 PFBCOLOM +0,6%") < aptas.index("🔴 ECOPETROL -1,3%")                # de la que más sube a la que más baja
-    assert "🟢 TERPEL +2,1% 🕘 lun 05/10 · casi no se negocia" in fuera and "🟢 PFSURA +0,7% · se negocia a ratos" in fuera
-    assert "Resumen: 3 suben, 1 bajan y 0 no se mueven. La que más sube: NUCO (+1,9%); la que más baja: ECOPETROL (-1,3%)" in t   # lo de ayer (TERPEL) no cuenta
-    assert "🕘 = todavía no ha negociado hoy" in t and "Sin dato ahora: BVC." in t and "no es una señal de compra" in t
+    assert "Rentabilidad de las acciones" in t and "desde que empezó el concurso (lun 05/10)" in t
+    assert "🟢 TERPEL: hoy +2,5% 🕘 · concurso s/d · mes s/d" in t and "🟢 PFBCOLOM: hoy +1,1% · concurso +2,0% · mes +8,0%" in t
+    assert "🔴 NUCO 💼: hoy -3,4% · concurso +9,4% · mes +21,0%" in t
+    assert t.index("TERPEL:") < t.index("PFBCOLOM:") < t.index("ECOPETROL:") < t.index("NUCO 💼:")       # de la que más sube hoy a la que más baja
+    assert "Hoy: 1 suben, 2 bajan y 0 no se mueven. La que más sube: PFBCOLOM (+1,1%); la que más baja: NUCO (-3,4%)" in t        # lo de ayer (TERPEL) no cuenta
+    assert "En el concurso: las que más han rendido son NUCO (+9,4%), PFBCOLOM (+2,0%), ECOPETROL (+0,4%)" in t
+    assert "Las tuyas: NUCO hoy -3,4% (concurso +9,4%)" in t and "Sin dato ahora: BVC." in t and "no la tuya" in t
+    assert "liquidez" not in t.lower() and "Descartadas" not in t                            # este resumen es de rentabilidad, no de liquidez
     sin_jerga(t)
 
 
@@ -188,9 +187,38 @@ def test_antes_de_abrir_las_variaciones_dicen_que_son_de_la_ultima_sesion(c, mon
     from src import construir as CO
     monkeypatch.setattr(CO, "universo_candidatos", lambda cfg: ["ECOPETROL"])
     monkeypatch.setattr(type(S.leer_estado(c)), "tenidos", lambda self: set())
-    monkeypatch.setattr(A, "_variacion", lambda ctx_, t: dict(cambio=0.02, es_hoy=False, fecha=dt.date(2026, 10, 5)))
-    monkeypatch.setattr(LQ, "medir", lambda f, t, cfg: dict(ticker=t, nivel=LQ.BUENA))
+    monkeypatch.setattr(A, "_rentabilidad", lambda ctx_, t: dict(hoy=0.02, es_hoy=False, fecha=dt.date(2026, 10, 5), concurso=0.02, mes=None))
     t = F.plano(A.resp_variaciones(c))
-    assert "Hoy todavía no ha abierto la bolsa: lo que ves es la última sesión." in t and "🟢 ECOPETROL +2,0% 🕘 lun 05/10" in t
-    monkeypatch.setattr(A, "_variacion", lambda ctx_, t: None)
-    assert "No pude leer las variaciones ahora" in F.plano(A.resp_variaciones(c))
+    assert "Hoy todavía no ha abierto la bolsa: la columna de hoy es la última sesión." in t and "🟢 ECOPETROL: hoy +2,0% 🕘 · concurso +2,0% · mes s/d" in t
+    monkeypatch.setattr(A, "_rentabilidad", lambda ctx_, t: None)
+    assert "No pude leer las rentabilidades ahora" in F.plano(A.resp_variaciones(c))
+
+
+def test_la_rentabilidad_se_calcula_con_el_precio_en_colombia_desde_antes_del_concurso(c):
+    import pandas as pd
+    idx = pd.bdate_range(end="2026-10-06", periods=30)
+    cierres = [100.0] * 27 + [110.0, 121.0, 115.0]                                         # vie 02/10 = 110 · lun 05/10 = 121 · mar 06/10 = 115
+    c.f.yf = SimpleNamespace(download=lambda sym, **k: pd.DataFrame({"Close": cierres}, index=idx))
+    c.f._con_cache = lambda clave, ttl, fn, nombre: fn()
+    r = A._rentabilidad(c, "ECOPETROL")
+    assert r["es_hoy"] and r["hoy"] == pytest.approx(115 / 121 - 1) and r["concurso"] == pytest.approx(115 / 110 - 1) and r["mes"] == pytest.approx(0.15)
+
+
+def test_una_global_sin_historial_fiable_en_colombia_usa_la_bolsa_para_hoy_y_nueva_york_en_pesos_para_lo_demas(c, monkeypatch):
+    """Caso real (NUCO, 6-oct-2026): la fuente repetía 51.820 días enteros y el resumen decía hoy = concurso = mes = -3,1 %."""
+    import pandas as pd
+    idx = pd.bdate_range(end="2026-10-06", periods=30)
+    series = {"NU": [12.0] * 27 + [13.43, 15.18, 15.63], CFG["macro_vivo"]["factores"]["dolar"]["simbolo"]: [3300.0] * 27 + [3318.0, 3193.0, 3220.0]}
+    c.f.yf = SimpleNamespace(download=lambda sym, **k: pd.DataFrame({"Close": series[sym]}, index=idx) if sym in series else pd.DataFrame())
+    c.f._con_cache = lambda clave, ttl, fn, nombre: fn()
+    c.f.libro_bvc = lambda: {"NU": dict(simbolo="NU", precio=49280.0, cambio=-0.031, prom10_mm=1.0, prom30_mm=1.0, prom60_mm=1.0, valor_ult_mm=1.0, acciones_ult=1.0)}
+    monkeypatch.setattr(LQ, "_medir_historia", lambda f, t, cfg: dict(nivel=LQ.SIN_DATO))
+    r = A._rentabilidad(c, "NUCO")
+    assert r["hoy"] == -0.031 and r["es_hoy"] and r["aprox"]                                 # hoy: lo que reporta la Bolsa de Colombia
+    assert r["concurso"] == pytest.approx(15.63 * 3220 / (13.43 * 3318) - 1) and r["mes"] == pytest.approx(15.63 * 3220 / (12.0 * 3300) - 1)
+    monkeypatch.setattr(A, "_rentabilidad", lambda ctx_, t: dict(r) if t == "NUCO" else None)
+    monkeypatch.setattr(type(S.leer_estado(c)), "tenidos", lambda self: {"NUCO"})
+    from src import construir as CO
+    monkeypatch.setattr(CO, "universo_candidatos", lambda cfg: [])
+    t = F.plano(A.resp_variaciones(c))
+    assert "🔴 NUCO 💼: hoy -3,1% · concurso ≈ +12,9% · mes ≈ +27,1%" in t and "≈ = acción de EE. UU. sin historial fiable en Colombia" in t

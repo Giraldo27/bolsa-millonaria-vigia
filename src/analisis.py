@@ -3,7 +3,7 @@
   · `resp_ganar`      (/ganar)            — ¿con cuál tengo más opción de ganar? Movimiento esperado, semáforo, macro, noticias, costo y liquidez de tu base.
   · `resp_reemplazo`  (/reemplazo NUCO)   — ¿cuál puede reemplazar a esa acción? Las de la BVC que más se le acercan en movimiento, con su liquidez en trii.
   · `resp_revisar`    (/revisar ECOPETROL)— ¿la compro hoy? Precio, macro, noticias del día y liquidez de ESA acción, con lo que tiene a favor y en contra.
-  · `resp_variaciones`(/variaciones)      — resumen del día: cuánto sube o baja cada acción que se analiza (las que pasan el filtro y las descartadas).
+  · `resp_variaciones`(/variaciones)      — rentabilidad de cada acción que se analiza: hoy, en el concurso y en el último mes.
 
 Ninguno predice hacia dónde va el precio: el movimiento esperado es para arriba o para abajo, y así se dice siempre."""
 from __future__ import annotations
@@ -279,24 +279,61 @@ def resp_revisar(ctx: S.Contexto, args: list[str]) -> str:
 
 
 # ------------------------------------------------------------------ /variaciones
-def _variacion(ctx: S.Contexto, t: str) -> dict[str, Any] | None:
-    """{cambio, es_hoy, fecha}: la variación de la acción en la Bolsa de Colombia (el precio en pesos que se ve en trii), con el día al que corresponde.
-    Primero el historial diario con su fecha; si no hay, lo que reporta la bolsa (sin fecha: se toma como de la sesión más reciente)."""
-    from . import sesion as SE
+def _cierres(ctx: S.Contexto, sym: str) -> pd.Series | None:
+    """Cierres diarios de 3 meses de un símbolo (caché de 2 minutos). None si no hay."""
+    def bajar() -> pd.DataFrame:
+        d = ctx.f.yf.download(sym, period="3mo", interval="1d", auto_adjust=False, progress=False, threads=False)
+        if isinstance(d.columns, pd.MultiIndex):
+            d.columns = d.columns.get_level_values(0)
+        if d is None or d.empty:
+            raise RuntimeError("Yahoo devolvió vacío")
+        d.index = pd.DatetimeIndex(d.index).tz_localize(None).normalize()
+        return d[["Close"]].dropna()
+    try:
+        d = ctx.f._con_cache(f"rentabilidad|{sym}", 2, bajar, f"rentabilidad {sym}")
+        return d["Close"] if d is not None and len(d) >= 2 else None
+    except Exception:                                                                  # noqa: BLE001
+        return None
+
+
+def _desde(c: pd.Series, ctx: S.Contexto) -> tuple[float | None, float | None]:
+    """(rentabilidad desde antes del primer día del concurso, rentabilidad de las últimas 21 sesiones) de una serie de cierres."""
+    ult = float(c.iloc[-1])
+    antes = c[c.index < pd.Timestamp(ctx.cfg["concurso"]["inicio"])]
+    return ((ult / float(antes.iloc[-1]) - 1) if len(antes) and len(antes) < len(c) else None, (ult / float(c.iloc[-22]) - 1) if len(c) >= 22 else None)
+
+
+def _rentabilidad(ctx: S.Contexto, t: str) -> dict[str, Any] | None:
+    """Rentabilidad de la acción con su precio en pesos (el que se ve en trii): {hoy, es_hoy, fecha, concurso, mes, aprox}.
+      · hoy      = último precio frente al cierre anterior (con el día al que corresponde);
+      · concurso = desde el cierre anterior al primer día del concurso hasta ahora;
+      · mes      = últimas 21 sesiones.
+    Para las acciones de EE. UU. cuyo historial en Colombia no es fiable (NUCO: la fuente repite el mismo precio días enteros), "hoy" sale de lo que reporta
+    la Bolsa de Colombia y "concurso" y "mes" se aproximan con el precio de Nueva York pasado a pesos (`aprox`). Lo que no se pueda calcular queda en None."""
     sym = LQ.simbolo_trii(t, ctx.cfg)
-    q = SE.movimiento(ctx.f, sym, ctx.ahora) if sym else None
-    if q and abs(q["precio"] / q["previo"] - 1) < 0.5:
-        return dict(cambio=q["precio"] / q["previo"] - 1, es_hoy=bool(q["es_hoy"]), fecha=q["fecha"])
+    fiable = sym is not None and (t in ctx.cfg["universe"]["local"] or LQ._medir_historia(ctx.f, t, ctx.cfg)["nivel"] != LQ.SIN_DATO)
+    c = _cierres(ctx, sym) if fiable else None
+    if c is not None and float(c.iloc[-2]) > 0 and abs(float(c.iloc[-1]) / float(c.iloc[-2]) - 1) < 0.5:
+        fecha = pd.Timestamp(c.index[-1]).date()
+        concurso, mes = _desde(c, ctx)
+        return dict(hoy=float(c.iloc[-1]) / float(c.iloc[-2]) - 1, es_hoy=fecha >= ctx.ahora.date(), fecha=fecha, concurso=concurso, mes=mes, aprox=False)
     fl = LQ.fila_libro(ctx.f, t, ctx.cfg)
-    if fl and fl.get("cambio") is not None:
-        return dict(cambio=fl["cambio"], es_hoy=True, fecha=None)
-    return None
-
-
-def _motivo_descarte(l: dict[str, Any]) -> str:
-    if l.get("a_ratos"):
-        return "se negocia a ratos"
-    return {LQ.JUSTA: "se negocia poco", LQ.MALA: "casi no se negocia", LQ.SIN_DATO: "liquidez sin comprobar"}[l["nivel"]]
+    hoy = fl["cambio"] if fl and fl.get("cambio") is not None else None
+    concurso = mes = None
+    fecha, es_hoy = None, True
+    if sym is not None and t not in ctx.cfg["universe"]["local"]:                      # global sin historial fiable en Colombia: Nueva York × dólar
+        from .data_loader import yahoo_symbol
+        ny, dolar = _cierres(ctx, yahoo_symbol(t, ctx.cfg)), _cierres(ctx, ctx.cfg["macro_vivo"]["factores"]["dolar"]["simbolo"])
+        if ny is not None and dolar is not None:
+            pesos = (ny * dolar.reindex(ny.index, method="ffill")).dropna()
+            if len(pesos) >= 2:
+                concurso, mes = _desde(pesos, ctx)
+                if hoy is None:
+                    hoy, fecha = float(pesos.iloc[-1]) / float(pesos.iloc[-2]) - 1, pd.Timestamp(pesos.index[-1]).date()
+                    es_hoy = fecha >= ctx.ahora.date()
+    if hoy is None:
+        return None
+    return dict(hoy=hoy, es_hoy=es_hoy, fecha=fecha, concurso=concurso, mes=mes, aprox=concurso is not None or mes is not None)
 
 
 def resp_variaciones(ctx: S.Contexto) -> str:
@@ -309,44 +346,49 @@ def resp_variaciones(ctx: S.Contexto) -> str:
 
     def una(t: str) -> dict[str, Any] | None:
         try:
-            v = _variacion(ctx, t)
-            return dict(v, ticker=t, liq=LQ.medir(ctx.f, t, ctx.cfg)) if v else None
+            v = _rentabilidad(ctx, t)
+            return dict(v, ticker=t) if v else None
         except Exception:                                                              # noqa: BLE001 — una acción sin dato se omite y se cuenta abajo
             return None
     with ThreadPoolExecutor(max_workers=ctx.cfg["banco"]["max_hilos"]) as ex:
         filas = [x for x in ex.map(una, tickers) if x]
     if not filas:
-        return "📊 No pude leer las variaciones ahora. Intenta de nuevo en unos minutos."
+        return "📊 No pude leer las rentabilidades ahora. Intenta de nuevo en unos minutos."
     sin = [t for t in tickers if t not in {x["ticker"] for x in filas}]
+    o = lambda v, aprox=False: "s/d" if v is None else ("≈ " if aprox else "") + F.pct(v, 1, True)      # noqa: E731
 
-    def linea(x: dict[str, Any], motivo: bool = False) -> str:
-        c = x["cambio"]
+    def linea(x: dict[str, Any]) -> str:
+        c = x["hoy"]
         marca = "🟢" if c > 0.0005 else ("🔴" if c < -0.0005 else "⚪")
-        viejo = "" if x["es_hoy"] else f" 🕘 {F.fecha(x['fecha'])}"
-        return f"{marca} {F.b(x['ticker'])} {F.pct(c, 1, True)}{viejo}" + (f" · {F.it(_motivo_descarte(x['liq']))}" if motivo and x["liq"]["nivel"] != LQ.BUENA else "")
-    orden = lambda xs: sorted(xs, key=lambda x: -x["cambio"])                           # noqa: E731
-    apta = lambda x: x["liq"]["nivel"] == LQ.BUENA and x["ticker"] in ctx.cfg["universe"]["local"]      # noqa: E731
-    mias = orden([x for x in filas if x["ticker"] in tenidos])
-    aptas = orden([x for x in filas if x["ticker"] not in tenidos and apta(x)])
-    fuera = orden([x for x in filas if x["ticker"] not in tenidos and not apta(x)])
-    L = [f"📊 {F.b('Variaciones del día')}  {F.it(F.fecha(ctx.ahora.date()) + ' ' + ctx.ahora.strftime('%H:%M'))}",
-         F.it("Cuánto sube o baja hoy cada acción, con su precio en pesos en la Bolsa de Colombia (el que ves en trii)."), ""]
-    if mias:
-        L += [F.b("💼 Las que tienes"), *[linea(x, True) for x in mias], ""]
-    L += [F.b(f"✅ Pasan el filtro de liquidez ({len(aptas)})"), *([linea(x) for x in aptas] or ["Ninguna ahora."]), ""]
-    L += [F.b(f"⛔ Descartadas por liquidez ({len(fuera)})"), *([linea(x, True) for x in fuera] or ["Ninguna."])]
-    de_hoy = [x for x in filas if x["es_hoy"]]
+        viejo = "" if x["es_hoy"] else " 🕘"
+        mia = " 💼" if x["ticker"] in tenidos else ""
+        return f"{marca} {F.b(x['ticker'])}{mia}: hoy {F.b(F.pct(c, 1, True))}{viejo} · concurso {o(x['concurso'], x.get('aprox'))} · mes {o(x['mes'], x.get('aprox'))}"
+    filas.sort(key=lambda x: -x["hoy"])
+    inicio = pd.Timestamp(ctx.cfg["concurso"]["inicio"]).date()
+    L = [f"📊 {F.b('Rentabilidad de las acciones')}  {F.it(F.fecha(ctx.ahora.date()) + ' ' + ctx.ahora.strftime('%H:%M'))}",
+         F.it(f"Cuánto ha subido o bajado cada acción: hoy, desde que empezó el concurso ({F.fecha(inicio)}) y en el último mes. De la que más sube hoy a la que más baja."), ""]
+    L += [linea(x) for x in filas]
     L.append("")
+    de_hoy = [x for x in filas if x["es_hoy"]]
     if de_hoy:
-        suben, bajan = sum(x["cambio"] > 0.0005 for x in de_hoy), sum(x["cambio"] < -0.0005 for x in de_hoy)
-        mejor, peor = max(de_hoy, key=lambda x: x["cambio"]), min(de_hoy, key=lambda x: x["cambio"])
-        L.append(f"👉 {F.b('Resumen')}: {suben} suben, {bajan} bajan y {len(de_hoy) - suben - bajan} no se mueven. La que más sube: {F.esc(mejor['ticker'])} "
-                 f"({F.pct(mejor['cambio'], 1, True)}); la que más baja: {F.esc(peor['ticker'])} ({F.pct(peor['cambio'], 1, True)}).")
+        suben, bajan = sum(x["hoy"] > 0.0005 for x in de_hoy), sum(x["hoy"] < -0.0005 for x in de_hoy)
+        L.append(f"👉 {F.b('Hoy')}: {suben} suben, {bajan} bajan y {len(de_hoy) - suben - bajan} no se mueven. La que más sube: {F.esc(de_hoy[0]['ticker'])} "
+                 f"({F.pct(de_hoy[0]['hoy'], 1, True)}); la que más baja: {F.esc(de_hoy[-1]['ticker'])} ({F.pct(de_hoy[-1]['hoy'], 1, True)}).")
     else:
-        L.append(f"👉 {F.b('Hoy todavía no ha abierto la bolsa')}: lo que ves es la última sesión.")
+        L.append(f"👉 {F.b('Hoy todavía no ha abierto la bolsa')}: la columna de hoy es la última sesión.")
+    con = sorted([x for x in filas if x["concurso"] is not None], key=lambda x: -x["concurso"])
+    if con:
+        L.append(f"🏁 {F.b('En el concurso')}: las que más han rendido son " + ", ".join(f"{F.esc(x['ticker'])} ({F.pct(x['concurso'], 1, True)})" for x in con[:3])
+                 + "; las que menos, " + ", ".join(f"{F.esc(x['ticker'])} ({F.pct(x['concurso'], 1, True)})" for x in con[-3:][::-1]) + ".")
+    mias = [x for x in filas if x["ticker"] in tenidos]
+    if mias:
+        L.append(f"💼 {F.b('Las tuyas')}: " + ", ".join(f"{F.esc(x['ticker'])} hoy {F.pct(x['hoy'], 1, True)} (concurso {o(x['concurso'])})" for x in mias) + ".")
+    notas = ["Precio en pesos en la Bolsa de Colombia, el que ves en trii. Es la rentabilidad de la ACCIÓN, no la tuya: la tuya depende de a qué precio compraste (/cartera)."]
+    if any(x.get("aprox") for x in filas):
+        notas.append("≈ = acción de EE. UU. sin historial fiable en Colombia: lo del concurso y el mes es su precio de Nueva York pasado a pesos; en trii puede diferir.")
     if any(not x["es_hoy"] for x in filas):
-        L.append(F.it("🕘 = todavía no ha negociado hoy: es la variación de su última sesión."))
+        notas.append("🕘 = todavía no ha negociado hoy: es la variación de su última sesión.")
     if sin:
-        L.append(F.it("Sin dato ahora: " + ", ".join(sin) + "."))
-    L.append(F.it("Que una acción suba hoy no es una señal de compra: en la BVC las que más suben suelen devolver parte."))
-    return "\n".join(L)
+        notas.append("Sin dato ahora: " + ", ".join(sin) + ".")
+    notas.append("Que una acción haya subido no dice que vaya a seguir subiendo. Antes de comprar una, pídeme /revisar y su nombre (ahí miro también si se negocia bien en trii).")
+    return "\n".join(L + [F.it(x) for x in notas])
