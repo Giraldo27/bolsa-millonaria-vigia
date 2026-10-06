@@ -270,24 +270,24 @@ class FuentesDatos:
             return None
 
         def bajar() -> dict[str, dict[str, Any]]:
-            cols = ["name", "close", "volume", "Value.Traded", "average_volume_10d_calc", "average_volume_30d_calc", "average_volume_60d_calc"]
+            cols = ["name", "close", "volume", "Value.Traded", "average_volume_10d_calc", "average_volume_30d_calc", "average_volume_60d_calc", "change"]
             cuerpo = {"filter": [{"left": "exchange", "operation": "equal", "right": "BVC"}], "columns": cols, "range": [0, 600]}
             r = self.http.post(c["url"], json=cuerpo, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
             if r.status_code != 200:
                 raise RuntimeError(f"HTTP {r.status_code}")
             out = {}
             for x in r.json().get("data") or []:
-                nombre, precio, vol, valor, p10, p30, p60 = x["d"]
+                nombre, precio, vol, valor, p10, p30, p60, cambio = x["d"]
                 if not nombre or not precio or precio <= 0:
                     continue
                 mm = lambda acciones: None if acciones is None else float(acciones) * float(precio) / 1e6      # noqa: E731 — acciones → millones de pesos
                 out[nombre] = dict(simbolo=nombre, precio=float(precio), acciones_ult=float(vol or 0), valor_ult_mm=float(valor or 0) / 1e6,
-                                   prom10_mm=mm(p10), prom30_mm=mm(p30), prom60_mm=mm(p60))
+                                   prom10_mm=mm(p10), prom30_mm=mm(p30), prom60_mm=mm(p60), cambio=None if cambio is None else float(cambio) / 100)
             if len(out) < 20:
                 raise RuntimeError("tabla de la bolsa incompleta")
             return out
         try:
-            return self._con_cache("libro_bvc", c.get("cache_min", 2), bajar, "libro de la Bolsa de Colombia")
+            return self._con_cache("libro_bvc2", c.get("cache_min", 2), bajar, "libro de la Bolsa de Colombia")
         except Exception:                                                              # noqa: BLE001 — sin esta fuente se sigue con la otra
             return None
 

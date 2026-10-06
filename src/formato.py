@@ -954,6 +954,7 @@ No importa si pones el precio en pesos o en dólares, o el total en vez del prec
 /ganar — todos los filtros juntos: ¿con cuál tengo más opción de ganar? (o pregúntame: "¿qué acción me hace ganar?")
 /reemplazo nuco — ¿qué acción puede reemplazar a esa? (o: "¿cuál reemplaza a nuco?")
 /revisar ecopetrol — ¿la compro hoy? Precio, macro, noticias y liquidez (o: "¿qué opinas de ecopetrol?")
+/variaciones — resumen del día: cuánto sube o baja cada acción, las que pasan el filtro y las descartadas (o: "resumen del día")
 /liquidez ecopetrol — ANTES de comprar: ¿esa acción pasa el filtro? (o pregúntame: "¿puedo comprar tesla?")
 /nuevas — actualiza las noticias AHORA (Superfinanciera y prensa) y muestra lo último de cada empresa
 /noticias — las que ya te avisé (o /noticias ECOPETROL)

@@ -3,6 +3,7 @@
   · `resp_ganar`      (/ganar)            — ¿con cuál tengo más opción de ganar? Movimiento esperado, semáforo, macro, noticias, costo y liquidez de tu base.
   · `resp_reemplazo`  (/reemplazo NUCO)   — ¿cuál puede reemplazar a esa acción? Las de la BVC que más se le acercan en movimiento, con su liquidez en trii.
   · `resp_revisar`    (/revisar ECOPETROL)— ¿la compro hoy? Precio, macro, noticias del día y liquidez de ESA acción, con lo que tiene a favor y en contra.
+  · `resp_variaciones`(/variaciones)      — resumen del día: cuánto sube o baja cada acción que se analiza (las que pasan el filtro y las descartadas).
 
 Ninguno predice hacia dónde va el precio: el movimiento esperado es para arriba o para abajo, y así se dice siempre."""
 from __future__ import annotations
@@ -274,4 +275,78 @@ def resp_revisar(ctx: S.Contexto, args: list[str]) -> str:
     else:
         L.append(f"👉 {F.b('Hoy no tiene nada serio en contra')}. Eso no es una señal de que vaya a subir: sólo que no hay motivo para evitarla.")
     L.append(F.it(f"No sé si va a subir o bajar. Entrar y salir cuesta cerca de {F.pct(_costo(ctx.cfg), 1)}: no la compres para venderla en uno o dos días. Siempre con orden límite."))
+    return "\n".join(L)
+
+
+# ------------------------------------------------------------------ /variaciones
+def _variacion(ctx: S.Contexto, t: str) -> dict[str, Any] | None:
+    """{cambio, es_hoy, fecha}: la variación de la acción en la Bolsa de Colombia (el precio en pesos que se ve en trii), con el día al que corresponde.
+    Primero el historial diario con su fecha; si no hay, lo que reporta la bolsa (sin fecha: se toma como de la sesión más reciente)."""
+    from . import sesion as SE
+    sym = LQ.simbolo_trii(t, ctx.cfg)
+    q = SE.movimiento(ctx.f, sym, ctx.ahora) if sym else None
+    if q and abs(q["precio"] / q["previo"] - 1) < 0.5:
+        return dict(cambio=q["precio"] / q["previo"] - 1, es_hoy=bool(q["es_hoy"]), fecha=q["fecha"])
+    fl = LQ.fila_libro(ctx.f, t, ctx.cfg)
+    if fl and fl.get("cambio") is not None:
+        return dict(cambio=fl["cambio"], es_hoy=True, fecha=None)
+    return None
+
+
+def _motivo_descarte(l: dict[str, Any]) -> str:
+    if l.get("a_ratos"):
+        return "se negocia a ratos"
+    return {LQ.JUSTA: "se negocia poco", LQ.MALA: "casi no se negocia", LQ.SIN_DATO: "liquidez sin comprobar"}[l["nivel"]]
+
+
+def resp_variaciones(ctx: S.Contexto) -> str:
+    from concurrent.futures import ThreadPoolExecutor
+
+    from . import construir as CO
+    est = S.leer_estado(ctx)
+    tenidos = est.tenidos()
+    tickers = list(dict.fromkeys(sorted(tenidos) + sorted(CO.universo_candidatos(ctx.cfg))))
+
+    def una(t: str) -> dict[str, Any] | None:
+        try:
+            v = _variacion(ctx, t)
+            return dict(v, ticker=t, liq=LQ.medir(ctx.f, t, ctx.cfg)) if v else None
+        except Exception:                                                              # noqa: BLE001 — una acción sin dato se omite y se cuenta abajo
+            return None
+    with ThreadPoolExecutor(max_workers=ctx.cfg["banco"]["max_hilos"]) as ex:
+        filas = [x for x in ex.map(una, tickers) if x]
+    if not filas:
+        return "📊 No pude leer las variaciones ahora. Intenta de nuevo en unos minutos."
+    sin = [t for t in tickers if t not in {x["ticker"] for x in filas}]
+
+    def linea(x: dict[str, Any], motivo: bool = False) -> str:
+        c = x["cambio"]
+        marca = "🟢" if c > 0.0005 else ("🔴" if c < -0.0005 else "⚪")
+        viejo = "" if x["es_hoy"] else f" 🕘 {F.fecha(x['fecha'])}"
+        return f"{marca} {F.b(x['ticker'])} {F.pct(c, 1, True)}{viejo}" + (f" · {F.it(_motivo_descarte(x['liq']))}" if motivo and x["liq"]["nivel"] != LQ.BUENA else "")
+    orden = lambda xs: sorted(xs, key=lambda x: -x["cambio"])                           # noqa: E731
+    apta = lambda x: x["liq"]["nivel"] == LQ.BUENA and x["ticker"] in ctx.cfg["universe"]["local"]      # noqa: E731
+    mias = orden([x for x in filas if x["ticker"] in tenidos])
+    aptas = orden([x for x in filas if x["ticker"] not in tenidos and apta(x)])
+    fuera = orden([x for x in filas if x["ticker"] not in tenidos and not apta(x)])
+    L = [f"📊 {F.b('Variaciones del día')}  {F.it(F.fecha(ctx.ahora.date()) + ' ' + ctx.ahora.strftime('%H:%M'))}",
+         F.it("Cuánto sube o baja hoy cada acción, con su precio en pesos en la Bolsa de Colombia (el que ves en trii)."), ""]
+    if mias:
+        L += [F.b("💼 Las que tienes"), *[linea(x, True) for x in mias], ""]
+    L += [F.b(f"✅ Pasan el filtro de liquidez ({len(aptas)})"), *([linea(x) for x in aptas] or ["Ninguna ahora."]), ""]
+    L += [F.b(f"⛔ Descartadas por liquidez ({len(fuera)})"), *([linea(x, True) for x in fuera] or ["Ninguna."])]
+    de_hoy = [x for x in filas if x["es_hoy"]]
+    L.append("")
+    if de_hoy:
+        suben, bajan = sum(x["cambio"] > 0.0005 for x in de_hoy), sum(x["cambio"] < -0.0005 for x in de_hoy)
+        mejor, peor = max(de_hoy, key=lambda x: x["cambio"]), min(de_hoy, key=lambda x: x["cambio"])
+        L.append(f"👉 {F.b('Resumen')}: {suben} suben, {bajan} bajan y {len(de_hoy) - suben - bajan} no se mueven. La que más sube: {F.esc(mejor['ticker'])} "
+                 f"({F.pct(mejor['cambio'], 1, True)}); la que más baja: {F.esc(peor['ticker'])} ({F.pct(peor['cambio'], 1, True)}).")
+    else:
+        L.append(f"👉 {F.b('Hoy todavía no ha abierto la bolsa')}: lo que ves es la última sesión.")
+    if any(not x["es_hoy"] for x in filas):
+        L.append(F.it("🕘 = todavía no ha negociado hoy: es la variación de su última sesión."))
+    if sin:
+        L.append(F.it("Sin dato ahora: " + ", ".join(sin) + "."))
+    L.append(F.it("Que una acción suba hoy no es una señal de compra: en la BVC las que más suben suelen devolver parte."))
     return "\n".join(L)

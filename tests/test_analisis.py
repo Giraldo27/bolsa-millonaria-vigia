@@ -1,4 +1,5 @@
 """Pruebas de los tres análisis que juntan todos los filtros: /ganar, /reemplazo y /revisar (src/analisis.py), y de cómo se piden escribiendo normal."""
+import datetime as dt
 from types import SimpleNamespace
 
 import pytest
@@ -142,6 +143,9 @@ def test_un_filtro_sin_datos_no_tumba_el_analisis(c, monkeypatch):
     ("estas seguro que ecopetrol con todas las noticias de hoy", "revisar", "ECOPETROL"),
     ("que opinas de grupo argos", "revisar", "GRUPOARGOS"),
     ("analiza pfbcolom", "revisar", "PFBCOLOM"),
+    ("resumen del dia", "variaciones", None),
+    ("variaciones de hoy", "variaciones", None),
+    ("como voy", "estado", None),
     ("revisa mi cartera", "cartera", None),                                                 # sin acción no es /revisar
     ("que acciones comprar", "comprar", None),
     ("noticias de ecopetrol", "noticias", "ECOPETROL"),
@@ -155,5 +159,38 @@ def test_los_analisis_se_piden_escribiendo_normal(texto, consulta, ticker):
 def test_el_bot_tiene_los_tres_comandos_y_la_ayuda_los_explica():
     import bot
     fuente = open(bot.__file__, encoding="utf-8").read()
-    for nombre in ("ganar", "reemplazo", "revisar"):
+    for nombre in ("ganar", "reemplazo", "revisar", "variaciones"):
         assert f'comando("{nombre}"' in fuente and f"/{nombre}" in F.AYUDA
+
+
+# =============================== /variaciones: el resumen del día ===============================
+def test_las_variaciones_separan_lo_tuyo_lo_que_pasa_el_filtro_y_lo_descartado(c, monkeypatch):
+    from src import construir as CO
+    monkeypatch.setattr(CO, "universo_candidatos", lambda cfg: ["ECOPETROL", "PFBCOLOM", "PFSURA", "TERPEL", "BVC"])
+    ayer = dt.date(2026, 10, 5)
+    datos = {"NUCO": (0.019, True), "ECOPETROL": (-0.013, True), "PFBCOLOM": (0.006, True), "PFSURA": (0.007, True), "TERPEL": (0.021, False)}
+    monkeypatch.setattr(A, "_variacion", lambda ctx_, t: dict(cambio=datos[t][0], es_hoy=datos[t][1], fecha=AHORA.date() if datos[t][1] else ayer) if t in datos else None)
+    niveles = {"NUCO": dict(nivel=LQ.JUSTA), "ECOPETROL": dict(nivel=LQ.BUENA), "PFBCOLOM": dict(nivel=LQ.BUENA), "PFSURA": dict(nivel=LQ.JUSTA, a_ratos=True), "TERPEL": dict(nivel=LQ.MALA)}
+    monkeypatch.setattr(LQ, "medir", lambda f, t, cfg: dict(ticker=t, **niveles[t]))
+    monkeypatch.setattr(type(S.leer_estado(c)), "tenidos", lambda self: {"NUCO"})
+    t = F.plano(A.resp_variaciones(c))
+    mias, resto = t.split("✅ Pasan el filtro de liquidez (2)")
+    aptas, fuera = resto.split("⛔ Descartadas por liquidez (2)")
+    assert "💼 Las que tienes" in mias and "🟢 NUCO +1,9% · se negocia poco" in mias
+    assert aptas.index("🟢 PFBCOLOM +0,6%") < aptas.index("🔴 ECOPETROL -1,3%")                # de la que más sube a la que más baja
+    assert "🟢 TERPEL +2,1% 🕘 lun 05/10 · casi no se negocia" in fuera and "🟢 PFSURA +0,7% · se negocia a ratos" in fuera
+    assert "Resumen: 3 suben, 1 bajan y 0 no se mueven. La que más sube: NUCO (+1,9%); la que más baja: ECOPETROL (-1,3%)" in t   # lo de ayer (TERPEL) no cuenta
+    assert "🕘 = todavía no ha negociado hoy" in t and "Sin dato ahora: BVC." in t and "no es una señal de compra" in t
+    sin_jerga(t)
+
+
+def test_antes_de_abrir_las_variaciones_dicen_que_son_de_la_ultima_sesion(c, monkeypatch):
+    from src import construir as CO
+    monkeypatch.setattr(CO, "universo_candidatos", lambda cfg: ["ECOPETROL"])
+    monkeypatch.setattr(type(S.leer_estado(c)), "tenidos", lambda self: set())
+    monkeypatch.setattr(A, "_variacion", lambda ctx_, t: dict(cambio=0.02, es_hoy=False, fecha=dt.date(2026, 10, 5)))
+    monkeypatch.setattr(LQ, "medir", lambda f, t, cfg: dict(ticker=t, nivel=LQ.BUENA))
+    t = F.plano(A.resp_variaciones(c))
+    assert "Hoy todavía no ha abierto la bolsa: lo que ves es la última sesión." in t and "🟢 ECOPETROL +2,0% 🕘 lun 05/10" in t
+    monkeypatch.setattr(A, "_variacion", lambda ctx_, t: None)
+    assert "No pude leer las variaciones ahora" in F.plano(A.resp_variaciones(c))

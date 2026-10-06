@@ -166,6 +166,8 @@ def construir_app(token: str, chat_id: int, cfg: dict | None = None) -> Applicat
     comando("ganar", lambda c, a: A.resp_ganar(c), "⏳ Pasando tu cartera por todos los filtros (cerca de 1 minuto)…", pesado=True)
     comando("reemplazo", lambda c, a: A.resp_reemplazo(c, a), "⏳ Buscando qué acción puede reemplazarla (cerca de 1 minuto)…", pesado=True)
     comando("revisar", lambda c, a: A.resp_revisar(c, a), "⏳ Revisando precio, macro, noticias y liquidez de esa acción…")
+    comando("variaciones", lambda c, a: A.resp_variaciones(c), "⏳ Mirando cuánto sube o baja hoy cada acción…")
+    comando("resumen", lambda c, a: A.resp_variaciones(c), "⏳ Mirando cuánto sube o baja hoy cada acción…")
     comando("informe", lambda c, a: "", "📝 Armando el informe completo (cerca de 1 minuto)…")
     comando("rank", lambda c, a: S.resp_rank(c, a), escribe=True, admite_html=False)
     comando("pos", lambda c, a: S.resp_pos(c, a), escribe=True, admite_html=False)
