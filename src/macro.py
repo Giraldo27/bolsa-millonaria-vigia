@@ -193,7 +193,7 @@ def afectadas_por_noticia(ticker: str, impacto_pct: float | None, sentido: int, 
     if impacto_pct is None:
         return out
     limite = cfg["macro_vivo"]["efecto_minimo"]
-    otras = [dict(ticker=t, efecto=b * impacto_pct, sentido=1 if b * impacto_pct > 0 else -1, tengo=t in tenidos, propia=False) for t, b in vecinos.items()]
+    otras = [dict(ticker=t, efecto=b * impacto_pct, sentido=0 if sentido == 0 else (1 if b * impacto_pct > 0 else -1), tengo=t in tenidos, propia=False) for t, b in vecinos.items()]
     return out + sorted([x for x in otras if abs(x["efecto"]) >= limite], key=lambda x: -abs(x["efecto"]))[:6]
 
 

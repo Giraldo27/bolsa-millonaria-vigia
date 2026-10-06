@@ -214,8 +214,8 @@ CATEGORIAS: list[tuple[str, str, int, int, list[str]]] = [
     ("analistas", "recomendación de analistas", 0, 3, [r"precio objetivo", r"sobreponderar", r"infraponderar", r"recomienda(n)? (comprar|vender|mantener)", r"recomendacion de (compra|venta)"]),
     ("direccion", "cambio en la dirección", 0, 2, [r"\brenunci", r"destitu", r"nuev[oa] presidente", r"sale (el|la) presidente", r"cambio de presidente", r"\bnombr(a|o|an|aron) "]),
 ]
-ETIQUETA = {c[0]: c[1] for c in CATEGORIAS}
-SESIONES = {c[0]: c[3] for c in CATEGORIAS}
+ETIQUETA = {c[0]: c[1] for c in CATEGORIAS} | {"otra": "noticia de la empresa"}
+SESIONES = {c[0]: c[3] for c in CATEGORIAS} | {"otra": 3}
 
 POSITIVAS = re.compile(r"\b(sube|subio|subieron|suben|crece|crecio|crecieron|crecen|aument(a|o|an|aron)|record|super(a|o|an|aron)|mejor(a|o|an|aron)|gana|gano|ganaron|positiv[oa]s?|"
                        r"alza|repunt(a|o)|dispar(a|o)|avanz(a|o)|duplic(a|o)|triplic(a|o)|elev(a|o)|fortalece|aprueb(a|an)|aprobo|aprobaron|mayor(es)?|incluid[ao]|entra|ingresa|"
@@ -223,6 +223,27 @@ POSITIVAS = re.compile(r"\b(sube|subio|subieron|suben|crece|crecio|crecieron|cre
 NEGATIVAS = re.compile(r"\b(cae|cayo|cayeron|caen|baj(a|o|an|aron)|disminuy(e|o|eron)|reduj(o|eron)|reduce|pierde|perdio|perdieron|perdidas?|retroced(e|io)|desplom(a|o)|"
                        r"negativ[oa]s?|rebaj(a|o|an)|recort(a|o|an)|deterior(a|o)|menor(es)?|excluid[ao]|sale|infraponderar|vender|suspend(e|io|en)|cancel(a|o|an)|"
                        r"no pagara|sin dividendo|incumpl(e|io))\b")
+
+
+def sentido_del_texto(texto: str) -> int:
+    """+1 si el titular trae más palabras de subida/mejora que de caída/problema, −1 al revés, 0 si no se sabe."""
+    t = norm(texto)
+    pos, neg = len(POSITIVAS.findall(t)), len(NEGATIVAS.findall(t))
+    return (pos > neg) - (neg > pos)
+
+
+def palabras_clave(titulo: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9]{4,}", norm(titulo))}
+
+
+def es_repetida(titulo: str, previos: list[list[str]], umbral: float) -> bool:
+    """¿Es la misma noticia que otra ya avisada (otro medio, otro titular)? Parecido = palabras en común ÷ palabras del titular más corto."""
+    a = palabras_clave(titulo)
+    for p in previos:
+        b = set(p)
+        if a and b and len(a & b) / min(len(a), len(b)) >= umbral:
+            return True
+    return False
 
 
 def texto_para_clasificar(it: Item) -> str:
@@ -510,8 +531,8 @@ class Senal:
     items: list[Item]
     rec: dict[str, Any]
     ts: dt.datetime
-    nivel: str = "alto"                     # alto (aviso completo con recomendación) | medio (aviso corto)
-    impacto: float | None = None            # impacto estimado sobre el precio, con signo (+0,012 = +1,2 %)
+    nivel: str = "alto"                     # alto (aviso completo con recomendación) | medio (relevante, aviso corto) | bajo (otra noticia de la empresa, aviso corto)
+    impacto: float | None = None            # impacto estimado sobre el precio, con signo (+0,012 = +1,2 %). Si sentido == 0 es la magnitud (se muestra como ±)
 
     @property
     def fuentes(self) -> list[str]:
@@ -546,7 +567,9 @@ def ronda(lector: Lector, mem: Memoria, f: Any, ahora: dt.datetime, cfg: dict[st
             continue
         c = clasificar(texto_para_clasificar(it), cfg)
         if c is None:
-            continue
+            if not n.get("todas"):
+                continue
+            c = Clasif("otra", sentido_del_texto(it.titulo), float(n["pesos"]["otra"]))   # noticia de la empresa sin un tipo reconocido: también se avisa
         for e in emisores_de(it, emisores):
             g = grupos.setdefault((e.nombre, c.cat), dict(emisor=e, items=[], clasifs=[]))
             g["items"].append(it)
@@ -555,36 +578,66 @@ def ronda(lector: Lector, mem: Memoria, f: Any, ahora: dt.datetime, cfg: dict[st
     estudio = cargar_estudio()
     hace_1h = (ahora_utc - dt.timedelta(hours=1)).isoformat(timespec="seconds")
     medias = mem.d["medias"] = [x for x in mem.d.get("medias", []) if x >= hace_1h]       # avisos de noticias relevantes en la última hora (tope)
+    otras = mem.d["otras"] = [x for x in mem.d.get("otras", []) if x >= hace_1h]          # ídem para "otras noticias"
+    hace_12h = (ahora_utc - dt.timedelta(hours=12)).isoformat(timespec="seconds")
+    titulos = mem.d["titulos"] = {k: [x for x in v if x[0] >= hace_12h] for k, v in mem.d.get("titulos", {}).items()}     # titulares ya avisados por empresa
+    liq_min = n["recomendacion"]["liquidez_min_cop_mm"]
     for (nombre, cat), g in grupos.items():
         e: Emisor = g["emisor"]
         suma = sum(c.sentido for c in g["clasifs"])
         c = Clasif(cat, (suma > 0) - (suma < 0), max(x.peso for x in g["clasifs"]))
         origenes, n_f = {i.origen for i in g["items"]}, len({i.fuente for i in g["items"]})
-        if puntuar(Clasif(cat, c.sentido or 1, c.peso), origenes, n_f, None, cfg)[0] + n["bono_precio"] < n["umbral_medio"]:
+        if not n.get("todas") and puntuar(Clasif(cat, c.sentido or 1, c.peso), origenes, n_f, None, cfg)[0] + n["bono_precio"] < n["umbral_medio"]:
             continue                                                                   # ni con el precio a favor llegaría: no se gasta una consulta de precios
         ticker, p = elegir_ticker(f, e, cfg, ahora)
-        puntaje, sentido = puntuar(c, origenes, n_f, p["z"] if p else None, cfg)
-        if puntaje < n["umbral_medio"] or sentido == 0:
-            continue
         tengo = bool(set(e.tickers) & tenidos)
-        nivel = "alto" if puntaje >= n["umbral_alto"] else "medio"
-        if nivel == "alto" and sentido < 0 and not tengo and puntaje < n["umbral_negativa_sin_tener"]:
-            nivel = "medio"                                                            # mala noticia de una acción que no tienes: informativa, salvo que sea muy fuerte
-        if nivel == "medio" and len(medias) >= n["max_medias_hora"]:
+        if not tengo and (p is None or p["liquidez_mm"] < liq_min):
+            continue                                                                   # sin liquidez buena en trii (o sin precio para comprobarla): no se avisa, salvo que la tengas
+        if cat == "otra":                                                              # sin tipo reconocido: el precio de hoy NO le pone sentido ni la vuelve "fuerte"
+            puntaje, sentido = min(puntuar(c, origenes, n_f, None, cfg)[0], n["umbral_medio"] - 0.01), c.sentido      # (que la acción suba hoy no prueba que sea por este titular)
+        else:
+            puntaje, sentido = puntuar(c, origenes, n_f, p["z"] if p else None, cfg)
+        if puntaje >= n["umbral_alto"] and sentido != 0:
+            nivel = "alto"
+            if sentido < 0 and not tengo and puntaje < n["umbral_negativa_sin_tener"]:
+                nivel = "medio"                                                        # mala noticia de una acción que no tienes: informativa, salvo que sea muy fuerte
+        elif puntaje >= n["umbral_medio"] and sentido != 0:
+            nivel = "medio"
+        elif n.get("todas"):
+            nivel = "bajo"
+        else:
             continue
-        clave = f"{nombre}|{sentido:+d}"
-        ult = mem.d["avisos"].get(clave)
-        if ult and (ahora_utc - dt.datetime.fromisoformat(ult)).total_seconds() / 60 < n["enfriamiento_emisor_min"]:
-            continue
-        rec = recomendar(cat, sentido, ticker, p, ahora, cfg, tengo, estudio, c.sentido)
-        senales.append(Senal(nombre, ticker, cat, sentido, puntaje, sorted(g["items"], key=lambda i: (i.origen != "sfc", -i.ts.timestamp())), rec, ahora_utc,
-                             nivel, impacto_estimado(cat, sentido, estudio)))
+        items = sorted(g["items"], key=lambda i: (i.origen != "sfc", -i.ts.timestamp()))
+        previos = [x[1] for x in titulos.get(nombre, [])]
+        if nivel == "bajo":
+            if len(otras) >= n["max_otras_hora"] or es_repetida(items[0].titulo, previos, n["parecido_repetida"]):
+                continue                                                               # misma noticia en otro medio, o ya van muchas esta hora
+        else:
+            if nivel == "medio" and len(medias) >= n["max_medias_hora"]:
+                if not n.get("todas") or len(otras) >= n["max_otras_hora"]:
+                    continue
+                nivel = "bajo"                                                         # ya van muchas relevantes esta hora: sale como "otra noticia" (no se pierde)
+            clave = f"{nombre}|{sentido:+d}"
+            ult = mem.d["avisos"].get(clave)
+            if ult and (ahora_utc - dt.datetime.fromisoformat(ult)).total_seconds() / 60 < n["enfriamiento_emisor_min"]:
+                if not n.get("todas") or es_repetida(items[0].titulo, previos, n["parecido_repetida"]) or len(otras) >= n["max_otras_hora"]:
+                    continue
+                nivel = "bajo"                                                         # ya hubo un aviso fuerte de esta empresa hace poco: esta sale como "otra noticia"
+        rec = recomendar(cat, sentido or 1, ticker, p, ahora, cfg, tengo, estudio, c.sentido)
+        base_imp = impacto_estimado(cat, 1, estudio)
+        senales.append(Senal(nombre, ticker, cat, sentido, puntaje, items, rec, ahora_utc, nivel,
+                             (sentido * base_imp if sentido else base_imp) if base_imp is not None else None))
     senales.sort(key=lambda s: -s.puntaje)
     senales = senales[: n["max_por_ronda"]]
     for s in senales:
+        marca = ahora_utc.isoformat(timespec="seconds")
         if s.nivel == "medio":
-            medias.append(ahora_utc.isoformat(timespec="seconds"))
-        mem.d["avisos"][f"{s.emisor}|{s.sentido:+d}"] = ahora_utc.isoformat(timespec="seconds")
+            medias.append(marca)
+        if s.nivel == "bajo":
+            otras.append(marca)
+        else:
+            mem.d["avisos"][f"{s.emisor}|{s.sentido:+d}"] = marca
+        titulos.setdefault(s.emisor, []).append([marca, sorted(palabras_clave(s.items[0].titulo))])
         mem.d["senales"].append(dict(ts=ahora_utc.isoformat(timespec="minutes"), emisor=s.emisor, ticker=s.ticker, cat=s.cat, sentido=s.sentido,
                                      puntaje=round(s.puntaje, 2), titulo=s.items[0].titulo[:200], fuente=s.items[0].fuente, url=s.items[0].url,
                                      accion=s.rec["accion"], salida=s.rec["salida"].isoformat() if s.rec.get("salida") else None, nivel=s.nivel, impacto=s.impacto))

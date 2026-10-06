@@ -377,20 +377,72 @@ def test_las_noticias_relevantes_tienen_tope_por_hora(mem):
     for k, t in enumerate(titulares):
         lec.items = [item(t)]
         total += len(N.ronda(lec, mem, Fuentes(vol=5e7), bog(2026, 10, 6, 10, k), CFG)[0])
-    assert total == tope and len(titulares) > tope
+    assert total == len(titulares) > tope                                                          # ninguna se pierde…
+    assert [x["nivel"] for x in mem.d["senales"]] == ["medio"] * tope + ["bajo"] * (len(titulares) - tope)   # …pero pasado el tope salen como "otra noticia"
 
 
-def test_no_se_consultan_precios_de_lo_que_no_puede_llegar_al_umbral(mem):
+def test_toda_noticia_de_una_empresa_liquida_de_la_bvc_se_avisa_aunque_no_sea_de_un_tipo_conocido(mem):
+    """Pedido del usuario (5-oct-2026): avisar TODAS las noticias que afecten a una acción de la BVC, no sólo las fuertes."""
     lec = con_base(mem)
-    lec.items = [item("Ecopetrol y Petrobras culminan campaña exploratoria"), item("El dólar cae tras decisión de la FED")]
-    f = Fuentes()
-    assert N.ronda(lec, mem, f, AHORA, CFG)[0] == [] and f.consultas == []
+    lec.items = [item("Ecopetrol y Petrobras culminan campaña exploratoria en el Caribe"), item("El dólar cae tras decisión de la FED"), item("Millonarios gana el clásico")]
+    f = Fuentes(vol=5e7)
+    (s,), _ = N.ronda(lec, mem, f, AHORA, CFG)
+    assert (s.emisor, s.ticker, s.cat, s.nivel, s.sentido) == ("Ecopetrol", "ECOPETROL", "otra", "bajo", 0) and f.consultas == ["ECOPETROL"]
+    assert s.impacto == pytest.approx(0.0183) and mem.d["senales"][-1]["nivel"] == "bajo"            # sin sentido claro: la magnitud típica, se muestra como ±
+    lec.items = [item("Bancolombia sube sus utilidades y mejora su eficiencia operativa")]
+    (b,), _ = N.ronda(lec, mem, Fuentes(vol=5e7), AHORA, CFG)
+    assert b.sentido == 1 and b.impacto > 0
 
 
-def test_noticia_sin_sentido_claro_no_se_avisa_aunque_sea_oficial(mem):
+def test_una_noticia_sin_tipo_no_se_vuelve_fuerte_ni_toma_sentido_porque_la_accion_suba_hoy(mem):
+    """Caso real: un titular de política interna de Ecopetrol salió como 'alto impacto, +' sólo porque la acción subía 2,6 % ese día."""
+    lec = con_base(mem)
+    lec.items = [item("Presidente de la junta de Ecopetrol cuestiona a un medio y se aparta de decisiones", fuente="La FM"),
+                 item("Presidente de la junta de Ecopetrol cuestiona a un medio de comunicación", fuente="Pulzo")]
+    (s,), _ = N.ronda(lec, mem, Fuentes({"ECOPETROL": 0.05}, vol=5e7), AHORA, CFG)
+    assert s.nivel == "bajo" and s.sentido == 0 and s.puntaje < CFG["noticias_bvc"]["umbral_medio"]
+
+
+def test_la_misma_noticia_en_otro_medio_no_se_repite(mem):
+    lec = con_base(mem)
+    lec.items = [item("Ecopetrol y Petrobras culminan campaña exploratoria de gas en el Caribe", fuente="Valora Analitik")]
+    assert len(N.ronda(lec, mem, Fuentes(vol=5e7), AHORA, CFG)[0]) == 1
+    lec.items = [item("Petrobras y Ecopetrol terminan histórica campaña exploratoria en el Caribe colombiano", fuente="El Tiempo")]
+    assert N.ronda(lec, mem, Fuentes(vol=5e7), bog(2026, 10, 6, 10, 20), CFG)[0] == []             # es la misma noticia con otro titular
+    lec.items = [item("Presidente de la junta de Ecopetrol responde a críticas por nombramientos", fuente="Portafolio")]
+    assert len(N.ronda(lec, mem, Fuentes(vol=5e7), bog(2026, 10, 6, 10, 40), CFG)[0]) == 1         # otra noticia distinta de la misma empresa: sí
+    assert N.es_repetida("Ecopetrol anuncia dividendo", [["anuncia", "dividendo", "ecopetrol", "extraordinario"]], 0.5) and not N.es_repetida("Ecopetrol gana contrato", [], 0.5)
+
+
+def test_las_empresas_sin_liquidez_buena_en_trii_no_se_avisan_salvo_que_las_tengas(mem):
+    lec = con_base(mem)
+    lec.items = [item("Enka de Colombia anuncia dividendo extraordinario y recompra de acciones")]
+    poco = Fuentes(vol=5e3)                                                                          # se negocia muy poco
+    assert N.ronda(lec, mem, poco, AHORA, CFG)[0] == []
+    lec.items = [item("Enka aprueba recompra de acciones por $20.000 millones")]
+    (s,), _ = N.ronda(lec, mem, poco, bog(2026, 10, 6, 10, 5), CFG, tenidos={"ENKA"})
+    assert s.ticker == "ENKA" and s.rec["tengo"]                                                     # es tuya: sí te enteras
+    lec.items = [item("Celsia gana contrato de energía solar")]
+    assert N.ronda(lec, mem, Fuentes({"CELSIA": None}), bog(2026, 10, 6, 10, 8), CFG)[0] == []      # sin precio no se puede comprobar la liquidez: no se avisa
+
+
+def test_con_todas_apagado_vuelve_a_avisar_solo_lo_relevante(mem):
+    import copy
+    cfg = copy.deepcopy(CFG)
+    cfg["noticias_bvc"]["todas"] = False
+    lec = con_base(mem)
+    lec.items = [item("Ecopetrol y Petrobras culminan campaña exploratoria en el Caribe")]
+    f = Fuentes(vol=5e7)
+    assert N.ronda(lec, mem, f, AHORA, cfg)[0] == [] and f.consultas == []
+
+
+def test_noticia_oficial_sin_sentido_claro_sale_como_informativa_con_mas_menos(mem):
     lec = con_base(mem)
     lec.items = [item("Ecopetrol informa decisiones de la asamblea sobre fusión", origen="sfc", fuente="Superfinanciera", entidad="ECOPETROL S.A.")]
-    assert N.ronda(lec, mem, Fuentes({"ECOPETROL": 0.002}, vol=5e7), AHORA, CFG)[0] == []
+    (s,), _ = N.ronda(lec, mem, Fuentes({"ECOPETROL": 0.002}, vol=5e7), AHORA, CFG)
+    assert s.nivel == "bajo" and s.sentido == 0                                                     # no se inventa una dirección
+    t = F.plano(F.msg_noticia_relevante(s, AHORA, CFG, __import__("src.macro", fromlist=["x"]).afectadas_por_noticia("ECOPETROL", s.impacto, 0, {}, CFG, set())))
+    assert "Impacto estimado: ±" in t and "no deja claro si la sube o la baja" in t and "⚪ ECOPETROL ±" in t
 
 
 def test_lo_viejo_no_se_avisa_y_la_mala_noticia_de_lo_que_no_tienes_solo_si_es_muy_fuerte(mem):

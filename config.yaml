@@ -452,7 +452,11 @@ noticias_bvc:
   umbral_negativa_sin_tener: 0.80           # mala noticia de una acción que NO tienes: sólo es de ALTO impacto si es muy fuerte (si no, sale como relevante)
   umbral_medio: 0.40                        # entre este valor y umbral_alto: noticia RELEVANTE (aviso corto, con su impacto estimado en %)
   max_medias_hora: 4                        # tope de avisos de noticias relevantes por hora (las de alto impacto no tienen tope)
-  max_por_ronda: 2
+  max_por_ronda: 5
+  todas: true                               # true = se avisa TODA noticia nueva de una empresa de la BVC con liquidez buena en trii (pedido del usuario, 5-oct-2026);
+                                            # false = sólo las relevantes y las de alto impacto
+  max_otras_hora: 12                        # tope por hora de avisos de "otras noticias" (las que no llegan a relevantes); evita una avalancha
+  parecido_repetida: 0.5                    # un titular que comparte la mitad de sus palabras con otro ya avisado de la misma empresa (12 h) es la misma noticia en otro medio
   enfriamiento_emisor_min: 60               # no repetir avisos de la misma empresa y sentido antes de este tiempo
   timeout_s: 10
   agente: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
@@ -470,7 +474,8 @@ noticias_bvc:
   # son casi todos trámites de ofertas ya conocidas) quedan con un valor prudente fijado a mano. Consecuencia: los tipos frecuentes NO llegan al umbral
   # sólo con el titular; necesitan que el precio confirme.
   pesos: {hallazgo: 0.73, opa: 0.70, deslistado: 0.70, indice: 0.70, legal: 0.70, recompra: 0.63, operativo: 0.60, resultados: 0.59, direccion: 0.57,
-          fusion: 0.55, capital: 0.55, guia: 0.55, calificacion: 0.47, analistas: 0.47, dividendo: 0.45}
+          fusion: 0.55, capital: 0.55, guia: 0.55, calificacion: 0.47, analistas: 0.47, dividendo: 0.45,
+          otra: 0.30}                       # "otra" = noticia de la empresa que no es de ninguno de los tipos anteriores
   recomendacion:
     liquidez_min_cop_mm: 2000               # valor negociado diario mínimo (millones de COP): por debajo cuesta mucho entrar y salir
     costo_ida_vuelta: 0.013                 # comprar + vender ≈ 1,3 % (2 comisiones de 0,2975 % + diferencia de precios). COMPRAR sólo si la evidencia lo supera

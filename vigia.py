@@ -239,9 +239,9 @@ def ronda_en_seco(cfg: dict[str, Any]) -> int:
     est = S.leer_estado(ctx)
     senales, salud = N.ronda(lector, mem, ctx.f, ctx.ahora, cfg, est.tenidos())
     print(f"Fuentes ({time.time() - t0:.1f} s): " + " · ".join(f"{k} {'✅' if v else '❌'}" for k, v in salud.items()))
-    print(f"Titulares leídos: {len(mem.d['vistos'])} · de alto impacto ahora: {len(senales)}")
+    print(f"Titulares leídos: {len(mem.d['vistos'])} · avisos que saldrían ahora: {len(senales)} ({', '.join(s.nivel for s in senales) or 'ninguno'})")
     for s in senales:
-        print("─" * 70 + "\n" + F.plano(F.msg_noticia_bvc(s, ctx.ahora, cfg)))
+        print("─" * 70 + "\n" + F.plano(F.msg_noticia_bvc(s, ctx.ahora, cfg) if s.nivel == "alto" else F.msg_noticia_relevante(s, ctx.ahora, cfg)))
     return 0
 
 

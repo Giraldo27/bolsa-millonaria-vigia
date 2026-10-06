@@ -809,10 +809,23 @@ BOTONES_MACRO = [[("🌍 Macro ahora", "c:macro"), ("💼 Mi cartera", "c:carter
 
 
 # ------------------------------------------------------------------ macro y cambios sugeridos
+def acciones_liquidas(ctx: Contexto, tickers: Any) -> set[str]:
+    """De esas acciones, las que tienen liquidez BUENA en trii (src/liquidez.py). Las demás no se nombran en ningún aviso ni recomendación."""
+    from . import liquidez as LQ
+    out = set()
+    for t in tickers:
+        try:
+            if LQ.medir(ctx.f, t, ctx.cfg)["nivel"] == LQ.BUENA:
+                out.add(t)
+        except Exception:                                                              # noqa: BLE001
+            continue
+    return out
+
+
 def _tickers_macro(ctx: Contexto, est: Estado) -> list[str]:
-    """Acciones a las que se les mide la sensibilidad macro: las de la BVC que el bot puede recomendar + las que tienes."""
+    """Acciones a las que se les mide la sensibilidad macro: las de la BVC con liquidez buena en trii + las que tienes."""
     from .construir import universo_candidatos
-    return list(dict.fromkeys(universo_candidatos(ctx.cfg) + sorted(est.tenidos())))
+    return list(dict.fromkeys(sorted(acciones_liquidas(ctx, universo_candidatos(ctx.cfg))) + sorted(est.tenidos())))
 
 
 def panorama_macro(ctx: Contexto) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
@@ -939,10 +952,12 @@ def tick_noticias(ctx: Contexto, lector: Any, mem: Any, sugerencia: dict[str, An
             vecinos = M.contagio(ctx.f, ctx.cfg, universo_candidatos(ctx.cfg))
         except Exception:                                                              # noqa: BLE001 — sin ese cálculo el aviso sale igual, sólo con la acción propia
             vecinos = {}
+    liquidas = acciones_liquidas(ctx, {t for v in vecinos.values() for t in v}) if senales else set()
     for s in senales:
         from . import macro as M
         afectadas = M.afectadas_por_noticia(s.ticker, s.impacto, s.sentido, vecinos.get(s.ticker, {}), ctx.cfg, est.tenidos())
-        if s.nivel == "medio":                                                         # noticia relevante: aviso corto con su impacto estimado en %
+        afectadas = [x for x in afectadas if x["propia"] or x["tengo"] or x["ticker"] in liquidas]      # nunca se listan acciones sin liquidez buena en trii
+        if s.nivel != "alto":                                                          # relevante u otra noticia de la empresa: aviso corto con su impacto estimado en %
             m = F.msg_noticia_relevante(s, ctx.ahora, ctx.cfg, afectadas)
             mensajes.append(m)
             enviar_o_encolar(ctx, m)

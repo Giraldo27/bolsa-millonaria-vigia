@@ -573,6 +573,9 @@ def _impacto_txt(s: Any) -> str:
     de un anuncio de ese tipo (medido), no una promesa; al lado va lo que la acción lleva hoy de verdad."""
     p = s.rec.get("pulso")
     hoy = f" · hoy la acción va {b(pct(p['r_hoy'], 1, True))}" if p else ""
+    if s.sentido == 0:
+        cifra = ("±" + pct(abs(s.impacto), 1)) if s.impacto is not None else "sin cifra"
+        return f"🎯 {b('Impacto estimado')}: {b(cifra)} {it('(el titular no deja claro si la sube o la baja)')}{hoy}"
     if s.impacto is None:
         return f"🎯 {b('Impacto estimado')}: {'positivo (+)' if s.sentido > 0 else 'negativo (−)'}, sin una cifra medida para este tipo{hoy}"
     return f"🎯 {b('Impacto estimado')}: {b(pct(s.impacto, 1, True))} {it('(lo que suele mover a la acción una noticia así)')}{hoy}"
@@ -583,6 +586,8 @@ def bloque_afectadas(afectadas: list[dict[str, Any]] | None) -> list[str]:
     if not afectadas:
         return []
     def una(x: dict[str, Any]) -> str:
+        if x["sentido"] == 0:
+            return f"⚪ {b(x['ticker'])} " + (("±" + pct(abs(x["efecto"]), 1)) if x["efecto"] is not None else "sin cifra") + (" (la tienes)" if x["tengo"] else "")
         cifra = pct(x["efecto"], 1, True) if x["efecto"] is not None else ("sube (+)" if x["sentido"] > 0 else "baja (−)")
         return f"{'🟢' if x['sentido'] > 0 else '🔴'} {b(x['ticker'])} {cifra}" + (" (la tienes)" if x["tengo"] else "")
     L = [f"📊 {b('Acciones de la BVC afectadas')}: " + " · ".join(una(x) for x in afectadas)]
