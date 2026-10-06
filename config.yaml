@@ -445,6 +445,11 @@ liquidez:                                   # liquidez REAL en trii = lo que se 
   max_dias_sin_negociar: 0                  # 4) ningún día sin negociación en la ventana (antes se toleraba 1)
   justa_cop_mm: 500                         # "justa": mediana ≥ 500 y sin días sin negociar → sólo con orden límite; por debajo es "mala"
   orden_max_pct: 0.02                       # una posición tuya de más del 2 % de lo que se negocia en un día se marca como "grande para esta acción"
+  libro_bvc:                                # segunda fuente: lo negociado en la Bolsa de Colombia (locales y globales), con 15 min de retraso
+    activo: true
+    url: "https://scanner.tradingview.com/colombia/scan"     # tablero público con los datos de la bolsa (la página de la bolsa exige una llave)
+    cache_min: 2
+    concentrado_veces: 2.5                  # si las últimas 2 semanas negocian más de 2,5 veces lo de 3 meses, el volumen es de pocos días: no se aprueba
 
 modo:
   solo_bvc: true                            # el bot sólo RECOMIENDA acciones de la BVC (relevos, base, noticias, "qué comprar"). Lo que ya tengas de EE. UU. se sigue vigilando.

@@ -167,3 +167,61 @@ def test_el_comando_liquidez_aprueba_o_rechaza_antes_de_comprar(tmp_path):
     todo = F.plano(S.resp_liquidez(c, []))                                                           # sin argumento: revisa tu cartera
     assert "TSLA — ⛔" in todo and "ECOPETROL — ✅ APTA" in todo
     assert S.resp_texto(c, "¿puedo comprar tesla?") == {"consulta": "liquidez", "ticker": "TSLA"}
+
+
+# =============================== segunda fuente: lo negociado en la Bolsa de Colombia ===============================
+import datetime as _dt
+
+from src import liquidez as _LQ
+
+_CFG_L = {"liquidez": dict(dias=20, buena_cop_mm=3000, buena_60_cop_mm=2000, buena_dia_flojo_cop_mm=1500, max_dias_sin_negociar=0, justa_cop_mm=500,
+                           orden_max_pct=0.02, libro_bvc=dict(activo=True, concentrado_veces=2.5))}
+_CERRADA = _dt.datetime(2026, 10, 6, 23, 0, tzinfo=_dt.timezone.utc)                    # 6 p. m. en Bogotá: bolsa cerrada
+_ABIERTA = _dt.datetime(2026, 10, 6, 15, 0, tzinfo=_dt.timezone.utc)                    # 10 a. m. en Bogotá: bolsa abierta
+
+
+def _fila(p10, p30, p60, ult, acciones=1000):
+    return dict(simbolo="X", precio=1000.0, acciones_ult=acciones, valor_ult_mm=ult, prom10_mm=p10, prom30_mm=p30, prom60_mm=p60)
+
+
+def _sin_dato():
+    return dict(ticker="NUCO", simbolo="NUCO.CL", nivel=_LQ.SIN_DATO, mediana_mm=None, hoy_mm=None, acciones_hoy=None, dias_sin_negociar=None, dias=0)
+
+
+def test_lo_que_no_se_podia_medir_ahora_se_mide_con_la_bolsa_y_con_prudencia():
+    """Caso real: NUCO promedia mucho, pero en 2 semanas negoció 2,6 veces lo de 3 meses y su última sesión fue floja → no se aprueba."""
+    l = _LQ.cruzar(_sin_dato(), _fila(17855, 9700, 6908, 826, 16746), _CFG_L, _CERRADA)
+    assert l["nivel"] == _LQ.JUSTA and l["fuente"] == "bvc" and len(l["motivos"]) == 2
+    t = _LQ.frase(l)
+    assert "JUSTA" in t and "2,6 veces" in t and "última sesión: 16.746 acciones, $ 826 millones" in t and "No la recomiendo" in t
+    assert _LQ.veredicto(l, es_bvc=False)[0] is False
+
+
+def test_con_la_bolsa_solo_se_aprueba_lo_estable_y_nunca_se_sube_lo_ya_medido():
+    assert _LQ.cruzar(_sin_dato(), _fila(4000, 4200, 3900, 3500), _CFG_L, _CERRADA)["nivel"] == _LQ.BUENA
+    assert _LQ.cruzar(_sin_dato(), _fila(300, 280, 260, 200), _CFG_L, _CERRADA)["nivel"] == _LQ.MALA
+    mala = dict(_sin_dato(), nivel=_LQ.MALA, mediana_mm=180.0, motivos=["poco"])
+    assert _LQ.cruzar(mala, _fila(9000, 9000, 9000, 9000), _CFG_L, _CERRADA)["nivel"] == _LQ.MALA      # la bolsa no "rescata" una acción que ya se midió mala
+    assert _LQ.cruzar(_sin_dato(), None, _CFG_L)["nivel"] == _LQ.SIN_DATO                                # sin la segunda fuente todo sigue igual
+
+
+def test_si_las_dos_fuentes_no_coinciden_gana_la_mas_prudente():
+    buena = dict(_sin_dato(), nivel=_LQ.BUENA, mediana_mm=3200.0, motivos=[])
+    l = _LQ.cruzar(buena, _fila(1200, 1500, 1800, 900), _CFG_L, _CERRADA)
+    assert l["nivel"] == _LQ.JUSTA and "me quedo con la más prudente" in l["motivos"][0]
+    assert _LQ.cruzar(buena, _fila(2300, 6400, 4700, 20), _CFG_L, _ABIERTA)["nivel"] == _LQ.BUENA
+
+
+def test_con_la_bolsa_abierta_lo_negociado_hoy_no_se_compara_con_un_dia_completo():
+    assert _LQ.en_sesion(_ABIERTA) and not _LQ.en_sesion(_CERRADA)
+    assert _LQ.en_sesion(_dt.datetime(2026, 10, 6, 13, 45, tzinfo=_dt.timezone.utc))                     # 8:45 de Bogotá: en octubre la bolsa abre 8:30
+    assert _LQ.cruzar(_sin_dato(), _fila(4000, 4200, 3900, 50), _CFG_L, _ABIERTA)["nivel"] == _LQ.BUENA
+    assert _LQ.cruzar(_sin_dato(), _fila(4000, 4200, 3900, 50), _CFG_L, _CERRADA)["nivel"] == _LQ.JUSTA
+
+
+def test_el_simbolo_de_la_bolsa_se_encuentra_con_o_sin_el_co_final():
+    tabla = {"NU": _fila(1, 1, 1, 1), "TSLACO": _fila(2, 2, 2, 2), "META": _fila(3, 3, 3, 3), "PFCIBEST": _fila(4, 4, 4, 4)}
+    f = SimpleNamespace(libro_bvc=lambda: tabla)
+    assert {t: _LQ.fila_libro(f, t, CFG)["prom10_mm"] for t in ("NUCO", "TSLA", "META", "PFBCOLOM")} == {"NUCO": 1, "TSLA": 2, "META": 3, "PFBCOLOM": 4}
+    assert _LQ.fila_libro(f, "ECOPETROL", CFG) is None                                    # no está en la tabla
+    assert _LQ.fila_libro(SimpleNamespace(), "NUCO", CFG) is None                         # fuente sin libro (pruebas antiguas): no se cruza nada
