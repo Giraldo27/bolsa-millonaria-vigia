@@ -48,11 +48,11 @@ def _una(f: FuentesDatos, t: str, base: str, fin: dt.date, hoy: dt.date, cfg: di
     anual = s["peso_iv"] * iv + (1 - s["peso_iv"]) * real if iv else real
     dias = max((fin - hoy).days, 1)
     return dict(ticker=t, grupo=grupo, anual=anual, iv=iv, real=real, vencimiento=venc, mee=anual * math.sqrt(dias / 365), liquidez_mm=liq,
-                liquida=liquida,
+                liquida=liquida, nivel=lq["nivel"], a_ratos=bool(lq.get("a_ratos")), continuidad=lq.get("continuidad"),
                 es_base=t == base)
 
 
-def ranking_base(f: FuentesDatos, cfg: dict[str, Any], ahora: dt.datetime, base: str | None = None) -> list[dict[str, Any]]:
+def ranking_base(f: FuentesDatos, cfg: dict[str, Any], ahora: dt.datetime, base: str | None = None, todas: bool = False) -> list[dict[str, Any]]:
     """Filas ordenadas de mayor a menor movimiento esperado hasta el final del concurso (sólo acciones líquidas), con la ventaja de cada una sobre la base
     y si supera el umbral (`supera`). La base aparece siempre, aunque no cumpla la liquidez."""
     base = base or cfg["posicion_base"]["ticker"]
@@ -66,7 +66,7 @@ def ranking_base(f: FuentesDatos, cfg: dict[str, Any], ahora: dt.datetime, base:
     for x in filas:
         x["vs_base"] = (x["mee"] / mb) if mb else None
         x["supera"] = bool(mb and x["ticker"] != base and x["liquida"] and x["mee"] >= mb * (1 + ventaja))
-    return sorted([x for x in filas if x["liquida"] or x["es_base"]], key=lambda x: -x["mee"])
+    return sorted([x for x in filas if todas or x["liquida"] or x["es_base"]], key=lambda x: -x["mee"])      # `todas`: también las que no pasan (src/analisis.py las etiqueta)
 
 
 def veredicto(filas: list[dict[str, Any]], cfg: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:

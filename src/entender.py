@@ -36,8 +36,12 @@ VERBO_VENTA = re.compile(r"\b(vendi|vendo|venta|vender|vendido|liquide|sali de|m
 PREGUNTA = re.compile(r"(\b(que|cual|cuales|cuando|como) (accion(es)? )?(compro|comprar|vendo|vender|registro)\b|\b(conviene|deberia|recomiend\w*|vale la pena|pienso|planeo|"
                       r"podria|(voy a|quiero|puedo) (comprar|vender)|si (compro|vendo))\b|\?)")
 DESHACER = re.compile(r"\b(deshacer|deshaz|deshaga|me equivoque|equivocacion|borra (lo|la) ultim|anula|anular|corrige lo ultimo|cancela (lo )?ultim)")
+CON_TICKER = ("noticias", "semaforo", "reemplazo", "revisar")                          # consultas que pueden venir con una acción ("noticias de ecopetrol")
 CONSULTAS = [
-    ("comprar", re.compile(r"\b(que (accion )?(compro|comprar|comprarias)|en que (invierto|meto)|recomiend\w*|recomendacion(es)?|que hago con la plata|(cuales?|que) (son |es )?(las? )?mejor(es)? (accion(es)?|opcion(es)?)|por (cual|que) (la |lo |las )?cambio)\b")),
+    ("reemplazo", re.compile(r"\b(reemplaz\w*|sustitu\w*|en (vez|lugar) de|por (cual|que) (la |lo |las )?cambio|cambi\w+ \w+ por (cual|que|otra))\b")),
+    ("ganar", re.compile(r"\b(ganar|gane|ganador\w*|todos los filtros|analisis completo|analiza\w* (todo|mi cartera))\b")),
+    ("revisar", re.compile(r"\b(segur[oa]|analiza\w*|analisis|revisa\w*|evalua\w*|que (opinas|piensas|me dices) de|que tal|como (ves|esta)|vale la pena)\b")),   # sólo con acción
+    ("comprar", re.compile(r"\b(que (accion )?(compro|comprar|comprarias)|en que (invierto|meto)|recomiend\w*|recomendacion(es)?|que hago con la plata|(cuales?|que) (son |es )?(las? )?mejor(es)? (accion(es)?|opcion(es)?))\b")),
     ("semaforo", re.compile(r"\b(semaforo|como (estan|esta|van) mis acciones)\b")),
     ("cartera", re.compile(r"\b(cartera|portafolio|mis acciones|que tengo)\b")),
     ("nuevas", re.compile(r"\b(actualiza\w* (las )?noticias|noticias nuevas|nuevas noticias|busca\w* noticias|hay noticias|ultimas noticias|refresca\w*)\b")),
@@ -178,7 +182,9 @@ def entender(texto: str, cfg: dict[str, Any], tenidos: set[str] | None = None, f
         return r
     for nombre, patron in CONSULTAS:
         if patron.search(t):
-            tk = buscar_ticker(t, cfg, tenidos)[0] if nombre in ("noticias", "semaforo") else None
+            tk = buscar_ticker(t, cfg, tenidos)[0] if nombre in CON_TICKER else None
+            if nombre == "revisar" and not tk:                                          # "revisa mi cartera", "¿estás seguro?": sin acción no es esta consulta
+                continue
             return Intencion("consulta", consulta=nombre, ticker=tk)
     return Intencion("nada")
 
