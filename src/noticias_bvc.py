@@ -359,7 +359,8 @@ class Lector:
         if f["sfc"]["activo"]:
             tareas.append(("Superfinanciera", lambda: self.sfc(ahora)))
         for x in f["rss"]:
-            tareas.append((x["nombre"], lambda x=x: self.rss(x)))
+            if self.ronda % max(int(x.get("cada_rondas", 1)), 1) == 0:
+                tareas.append((x["nombre"], lambda x=x: self.rss(x)))
         g = f["google"]
         cada = max(int(g.get("cada_rondas", 1)), 1)
         if g["activo"] and g["consultas"] and self.ronda % cada == 0:

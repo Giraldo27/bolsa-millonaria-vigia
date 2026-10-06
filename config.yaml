@@ -488,14 +488,14 @@ noticias_bvc:
     # Superfinanciera, "Información relevante" (SIMEV). Es la API pública que usa su propia página; la clave es la que esa página trae a la vista de todos.
     # Si la cambian, pon la nueva aquí o en la variable de entorno SFC_API_KEY.
     sfc: {activo: true, url: "https://www.superfinanciera.gov.co/sfcservices/SIMEV2/informacion-relevante/general/pagina", api_key: "D4p2MNknJeQbz4mipjjEKOjPL1Eb4zwq", size: 60}
-    rss:
+    rss:                                    # cada_rondas: cada cuántas rondas se consulta (los feeds pesados o lentos, menos seguido: una fuente lenta retrasa a todas)
       - {nombre: "Valora Analitik", url: "https://www.valoraanalitik.com/feed/"}
       - {nombre: "La República", url: "https://www.larepublica.co/rss/"}
       - {nombre: "Portafolio", url: "https://www.portafolio.co/rss/economia.xml"}
       - {nombre: "Portafolio (negocios)", url: "https://www.portafolio.co/rss/negocios.xml"}
-      - {nombre: "Semana", url: "https://www.semana.com/arc/outboundfeeds/rss/category/economia/?outputType=xml"}
+      - {nombre: "Semana", url: "https://www.semana.com/arc/outboundfeeds/rss/category/economia/?outputType=xml", cada_rondas: 2}
       - {nombre: "El Tiempo", url: "https://www.eltiempo.com/rss/economia.xml"}
-      - {nombre: "El Colombiano", url: "https://www.elcolombiano.com/rss/negocios.xml"}
+      - {nombre: "El Colombiano", url: "https://www.elcolombiano.com/rss/negocios.xml", cada_rondas: 4}      # 340 KB por consulta y hasta 5 s: una vez por minuto
     google:                                 # una búsqueda cada `cada_rondas` rondas, rotando (Google bloquea si se le consulta muy seguido)
       activo: true
       cada_rondas: 4

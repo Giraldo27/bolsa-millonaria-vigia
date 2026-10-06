@@ -125,6 +125,20 @@ Además del radar de las 19:30, el monitor (cada 15 min en horario de trii) avis
 | ⚠️ Salud de fuentes | una fuente cae o se recupera | 60 min |
 Todo se ajusta en `config.yaml → monitor.eventos` (`activo: false` apaga los avisos de novedades; el tope `max_por_corrida` limita cuántos salen juntos). Estos avisos **no** traen archivo; para el detalle escribe `/informe`.
 
+## 6g) Qué avisos llegan solos y a dónde (estado al 5-oct-2026)
+| Aviso | Cuándo |
+|---|---|
+| 🚨 Noticia de **alto impacto** de una empresa de la BVC (aviso completo: qué hacer, qué esperar, cuánto tiempo) | al detectarla; las fuentes se consultan cada 15 s |
+| 📰 Noticia **relevante** u **otra noticia** de la empresa (aviso corto) | ídem; todas, sin topes (sólo se filtran las repetidas) |
+| 📈/📉 "**La noticia ya mueve el precio**" (segundo aviso) | si en las 4 horas de mercado siguientes la acción se mueve ≥ 1 vez lo normal y ≥ 1 % |
+| 🌍 Movimiento macro fuerte · 🏦 titular macro | con las acciones de la BVC beneficiadas y afectadas y su porcentaje |
+| 🔁 Cambio sugerido · 🌅 resumen 08:10 · 🔴 semáforo · 🌙 radar 19:30 | ver 6b y 6f |
+
+* Cada noticia trae **impacto estimado en % con signo** (+ sube, − baja, ± si el titular no lo deja claro), las **acciones de la BVC afectadas** (la propia, su otra serie y su grupo) y si **ya movió el precio**.
+* **Nunca** se avisa ni se lista una acción sin liquidez buena en trii (salvo que la tengas).
+* **A dónde llegan:** al chat de `TELEGRAM_CHAT_ID` y a todo chat suscrito. Un **grupo** queda suscrito solo la primera vez que alguien usa un comando del bot ahí (o cuando agregan el bot); `/avisos` suscribe cualquier chat y `/silencio` lo apaga.
+* "En milisegundos" no existe con fuentes públicas: el retraso es lo que tarde el medio en publicar más hasta 15 s. La Superfinanciera suele ir antes que la prensa.
+
 ## 6f) Macro, cambios sugeridos y resumen de la mañana (todo automático)
 * **Macro (`/macro`, `src/macro.py`).** Cada 2 minutos mira el petróleo, el dólar, el Colcap, Wall Street, Brasil y el oro. Si alguno se mueve ≥ 2 veces lo normal, o si
   un tema macro (Banco de la República, inflación, FED, calificación del país, reforma tributaria, OPEP, Brasil) sale en 2 o más medios, te avisa con las **acciones

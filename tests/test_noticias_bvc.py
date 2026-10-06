@@ -98,6 +98,15 @@ def test_una_fuente_caida_no_tumba_a_las_demas_y_se_usan_peticiones_condicionale
     assert any("api-key" in h for u, h in http.pedidas if "superfinanciera" in u)
 
 
+def test_las_fuentes_pesadas_se_consultan_menos_seguido():
+    http = HttpFalso({"elcolombiano": "<rss></rss>", "valoraanalitik": "<rss></rss>", "superfinanciera": json.dumps({"content": []})})
+    lec = N.Lector(CFG, http=http, env={})
+    for _ in range(8):
+        lec.todo(AHORA)
+    veces = lambda dominio: len([u for u, _ in http.pedidas if dominio in u])        # noqa: E731
+    assert veces("valoraanalitik") == 8 and veces("elcolombiano") == 2 and veces("superfinanciera") == 8      # lo rápido y oficial, en cada ronda
+
+
 def test_google_rota_las_busquedas_una_por_ronda():
     http = HttpFalso({"google": "<rss></rss>"})
     lec = N.Lector(CFG, http=http, env={})
