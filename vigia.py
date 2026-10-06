@@ -69,9 +69,10 @@ class Vigia:
         self.rondas += 1
         self.avisos += len(msgs)
         salud = self.mem.d.get("salud") or {}
-        if salud != self._salud:                                                        # sólo se registra cuando cambia (no cada 2 minutos)
-            self._salud = dict(salud)
-            log.info("fuentes de noticias: %s · titulares en memoria: %d", " ".join(f"{k}={'ok' if v else 'FALLA'}" for k, v in salud.items()), len(self.mem.d["vistos"]))
+        fallan = {k: False for k, v in salud.items() if not v}                          # no todas las fuentes se consultan en cada ronda: sólo importa cuáles FALLAN
+        if self.rondas == 1 or fallan != self._salud:                                   # se registra al arrancar y cuando cambia (no en cada ronda)
+            self._salud = fallan
+            log.info("fuentes de noticias: %s · titulares en memoria: %d", ("fallan " + ", ".join(fallan)) if fallan else "todas responden", len(self.mem.d["vistos"]))
         if msgs:
             log.info("noticias: %d aviso(s) enviados", len(msgs))
             self.guardar(True)                                                          # lo ya avisado se respalda enseguida: si la máquina muere, no se repite el aviso
