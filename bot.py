@@ -270,8 +270,7 @@ def construir_app(token: str, chat_id: int, cfg: dict | None = None) -> Applicat
                             + F.b("voy 3,5 y el corte está en 8") + ".")
         elif tipo == "p" and dato == "revisar":
             pendiente[chat] = ("revisar", None, time.monotonic() + PENDIENTE_S)
-            await responder(update, "🔍 " + F.b("¿Qué acción estás pensando comprar?") + "
-Escribe el nombre, por ejemplo " + F.b("ecopetrol") + " o " + F.b("bancolombia")
+            await responder(update, "🔍 " + F.b("¿Qué acción estás pensando comprar?") + "\nEscribe el nombre, por ejemplo " + F.b("ecopetrol") + " o " + F.b("bancolombia")
                             + ". Te digo qué tiene hoy a favor y en contra.")
         elif tipo == "k" and dato:
             pendiente[chat] = ("compra", dato, time.monotonic() + PENDIENTE_S)
