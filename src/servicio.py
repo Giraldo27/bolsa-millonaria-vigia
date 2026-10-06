@@ -846,8 +846,9 @@ def tick_macro(ctx: Contexto, mem: Any, items: list[Any] | None = None) -> list[
     est = leer_estado(ctx)
     sens = M.sensibilidades(ctx.f, ctx.cfg, _tickers_macro(ctx, est))
     imp = {x["clave"]: M.impacto(x, sens.get(x["clave"], {}), ctx.cfg, est.tenidos()) for x in tab if x["notable"]}
+    uno = {x["clave"]: M.impacto(dict(x, cambio=0.01), sens.get(x["clave"], {}), ctx.cfg, est.tenidos(), minimo=0.001) for x in tab}      # efecto por cada 1 % de cada factor
     mensajes = [F.msg_macro_movimiento(x, imp[x["clave"]], ctx.ahora) for x in fuertes]
-    mensajes += [F.msg_macro_titular(g, tab, imp, ctx.ahora) for g in temas]
+    mensajes += [F.msg_macro_titular(g, tab, imp, ctx.ahora, uno) for g in temas]
     for m in mensajes:
         enviar_o_encolar(ctx, m, BOTONES_MACRO)
     if not ctx.dry:
@@ -930,16 +931,26 @@ def tick_noticias(ctx: Contexto, lector: Any, mem: Any, sugerencia: dict[str, An
     senales, salud = N.ronda(lector, mem, ctx.f, ctx.ahora, ctx.cfg, est.tenidos())
     mem.ultimos_items = getattr(lector, "ultimos", [])                                 # los titulares recién leídos también sirven para la revisión macro
     mensajes = []
+    vecinos: dict[str, dict[str, float]] = {}
+    if senales:                                                                        # a qué otras acciones de la BVC les pega (sólo se calcula si hay algo que avisar)
+        try:
+            from . import macro as M
+            from .construir import universo_candidatos
+            vecinos = M.contagio(ctx.f, ctx.cfg, universo_candidatos(ctx.cfg))
+        except Exception:                                                              # noqa: BLE001 — sin ese cálculo el aviso sale igual, sólo con la acción propia
+            vecinos = {}
     for s in senales:
+        from . import macro as M
+        afectadas = M.afectadas_por_noticia(s.ticker, s.impacto, s.sentido, vecinos.get(s.ticker, {}), ctx.cfg, est.tenidos())
         if s.nivel == "medio":                                                         # noticia relevante: aviso corto con su impacto estimado en %
-            m = F.msg_noticia_relevante(s, ctx.ahora, ctx.cfg)
+            m = F.msg_noticia_relevante(s, ctx.ahora, ctx.cfg, afectadas)
             mensajes.append(m)
             enviar_o_encolar(ctx, m)
             continue
         botones = BOTONES_NOTICIA
         if s.sentido > 0 and not s.rec["tengo"]:
             botones = [[("✅ La compré", f"k:{s.ticker}")]] + BOTONES_NOTICIA
-        m = F.msg_noticia_bvc(s, ctx.ahora, ctx.cfg, sugerencia if (sugerencia and sugerencia["ticker"] != s.ticker) else None)
+        m = F.msg_noticia_bvc(s, ctx.ahora, ctx.cfg, sugerencia if (sugerencia and sugerencia["ticker"] != s.ticker) else None, afectadas)
         mensajes.append(m)
         enviar_o_encolar(ctx, m, botones)
     if salud:                                                                          # aviso si TODAS las fuentes llevan varias rondas caídas (y cuando vuelven)

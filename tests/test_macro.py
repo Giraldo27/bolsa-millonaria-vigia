@@ -167,7 +167,7 @@ def test_el_tablero_macro_y_el_aviso_de_titular():
     n = F.plano(F.msg_macro_titular(g, tab, imp, AHORA))
     assert "Noticia macro: petróleo" in n and "OPEP+ sorprende" in n and "Cómo reacciona el mercado ahora: el petróleo (Brent) cae 6,0%" in n and "Afectadas: ECOPETROL" in n
     quieto = F.plano(F.msg_macro_titular(dict(g, factores=["oro"]), tab, imp, AHORA))
-    assert "se mueven dentro de lo normal" in quieto and "todavía no está moviendo los precios" in quieto
+    assert "el oro se mueve dentro de lo normal" in quieto and "todavía no está moviendo los precios" in quieto
     assert "no pude consultar" in F.plano(F.msg_macro_tablero([], {}, AHORA)) and c.dry
 
 

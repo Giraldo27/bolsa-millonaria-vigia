@@ -131,7 +131,73 @@ def sensibilidades(f: Any, cfg: dict[str, Any], tickers: list[str]) -> dict[str,
     return v or {}
 
 
-def impacto(factor: dict[str, Any], sens: dict[str, dict[str, float]], cfg: dict[str, Any], tenidos: set[str]) -> dict[str, Any]:
+def relacionadas(cfg: dict[str, Any]) -> dict[str, dict[str, str]]:
+    """{acción: {otra: 'misma' | 'grupo'}}: 'misma' = otra serie del mismo emisor (ordinaria/preferencial); 'grupo' = vínculo de propiedad (noticias_bvc.grupos)."""
+    out: dict[str, dict[str, str]] = {}
+    for g in cfg["noticias_bvc"].get("grupos", []):
+        for a in g:
+            for b in g:
+                if a != b:
+                    out.setdefault(a, {})[b] = "grupo"
+    for e in cfg["noticias_bvc"]["emisores"]:
+        for a in e["tickers"]:
+            for b in e["tickers"]:
+                if a != b:
+                    out.setdefault(a, {})[b] = "misma"
+    return out
+
+
+def contagio(f: Any, cfg: dict[str, Any], tickers: list[str]) -> dict[str, dict[str, float]]:
+    """{acción con la noticia: {otra acción de la BVC: cuánto suele moverse por cada 1 % PROPIO de la primera}}.
+
+    Sólo entre empresas con vínculo real (`relacionadas`): la otra serie del mismo emisor cuenta 1 a 1 (es la misma empresa) y las del mismo grupo cuentan
+    lo que se midió (descontando el mercado colombiano, y sólo si la relación es firme, |t| ≥ t_minimo). Sin vínculo no se muestra nada: una regresión entre
+    25 acciones siempre encuentra parejas "relacionadas" por casualidad. Caché de 12 horas."""
+    m = cfg["macro_vivo"]
+    rel = relacionadas(cfg)
+
+    def calcular() -> dict[str, Any]:
+        r = {}
+        for t in tickers:
+            try:
+                d = f.diario(t, m["dias"] + 30)
+                if d is not None and len(d) >= 130:
+                    r[t] = d["Close"].pct_change().tail(m["dias"])
+            except Exception:                                                          # noqa: BLE001
+                continue
+        try:
+            mercado = _historia(f, m["factores"]["colombia"]["simbolo"]).pct_change().tail(m["dias"] + 10)
+        except Exception:                                                              # noqa: BLE001
+            mercado = None
+        out: dict[str, Any] = {}
+        for origen, x in r.items():
+            fila = {}
+            for destino, tipo in rel.get(origen, {}).items():
+                if tipo == "misma":
+                    fila[destino] = 1.0
+                elif destino in r:
+                    b = _beta(r[destino], x, mercado)
+                    if b and abs(b["t"]) >= m["t_minimo"] and b["beta"] > 0:
+                        fila[destino] = round(min(b["beta"], 1.0), 3)
+            out[origen] = fila
+        for origen, vecinos in rel.items():                                             # acción sin historia: al menos su otra serie
+            out.setdefault(origen, {t: 1.0 for t, tipo in vecinos.items() if tipo == "misma"})
+        return out
+    return f._con_cache("macro_contagio|" + ",".join(sorted(tickers)), 12 * 60, calcular, "contagio entre acciones") or {}
+
+
+def afectadas_por_noticia(ticker: str, impacto_pct: float | None, sentido: int, vecinos: dict[str, float], cfg: dict[str, Any], tenidos: set[str]) -> list[dict[str, Any]]:
+    """Acciones de la BVC a las que les pega una noticia de `ticker`, con su porcentaje estimado y signo: primero la propia y luego las que suelen moverse
+    con ella (efecto = su sensibilidad × el impacto estimado de la noticia). Sin impacto medido sólo se indica el sentido (efecto None)."""
+    out = [dict(ticker=ticker, efecto=impacto_pct, sentido=sentido, tengo=ticker in tenidos, propia=True)]
+    if impacto_pct is None:
+        return out
+    limite = cfg["macro_vivo"]["efecto_minimo"]
+    otras = [dict(ticker=t, efecto=b * impacto_pct, sentido=1 if b * impacto_pct > 0 else -1, tengo=t in tenidos, propia=False) for t, b in vecinos.items()]
+    return out + sorted([x for x in otras if abs(x["efecto"]) >= limite], key=lambda x: -abs(x["efecto"]))[:6]
+
+
+def impacto(factor: dict[str, Any], sens: dict[str, dict[str, float]], cfg: dict[str, Any], tenidos: set[str], minimo: float | None = None) -> dict[str, Any]:
     """Para el movimiento de HOY de un factor: qué acciones suelen subir con él (beneficiadas) y cuáles bajar (afectadas), con el efecto estimado
     (sensibilidad × movimiento). Las de EE. UU. que tienes suman el efecto directo del dólar: en trii se ven en pesos."""
     filas = []
@@ -145,7 +211,7 @@ def impacto(factor: dict[str, Any], sens: dict[str, dict[str, float]], cfg: dict
                 global_ = False
             if global_ and not any(x["ticker"] == t for x in filas):
                 filas.append(dict(ticker=t, beta=1.0, efecto=factor["cambio"], tengo=True, directo=True))    # aritmética: precio en pesos = precio en dólares × dólar
-    limite = cfg["macro_vivo"]["efecto_minimo"]
+    limite = cfg["macro_vivo"]["efecto_minimo"] if minimo is None else minimo
     benef = sorted([x for x in filas if x["efecto"] >= limite], key=lambda x: -x["efecto"])
     afect = sorted([x for x in filas if x["efecto"] <= -limite], key=lambda x: x["efecto"])
     return dict(beneficiadas=benef, afectadas=afect, mias=[x for x in benef + afect if x["tengo"]])

@@ -578,14 +578,27 @@ def _impacto_txt(s: Any) -> str:
     return f"🎯 {b('Impacto estimado')}: {b(pct(s.impacto, 1, True))} {it('(lo que suele mover a la acción una noticia así)')}{hoy}"
 
 
-def msg_noticia_relevante(s: Any, ahora: dt.datetime, cfg: dict[str, Any]) -> str:
+def bloque_afectadas(afectadas: list[dict[str, Any]] | None) -> list[str]:
+    """'Acciones de la BVC afectadas' por una noticia de empresa: cada una con su porcentaje estimado y su signo (+ sube, − baja)."""
+    if not afectadas:
+        return []
+    def una(x: dict[str, Any]) -> str:
+        cifra = pct(x["efecto"], 1, True) if x["efecto"] is not None else ("sube (+)" if x["sentido"] > 0 else "baja (−)")
+        return f"{'🟢' if x['sentido'] > 0 else '🔴'} {b(x['ticker'])} {cifra}" + (" (la tienes)" if x["tengo"] else "")
+    L = [f"📊 {b('Acciones de la BVC afectadas')}: " + " · ".join(una(x) for x in afectadas)]
+    if len(afectadas) > 1:
+        L.append(it("Las demás son su otra serie o empresas de su mismo grupo, según cuánto suelen moverse con ella."))
+    return L
+
+
+def msg_noticia_relevante(s: Any, ahora: dt.datetime, cfg: dict[str, Any], afectadas: list[dict[str, Any]] | None = None) -> str:
     """Aviso corto de una noticia RELEVANTE (no llega a alto impacto): qué salió y su impacto estimado en %, con signo."""
     from .noticias_bvc import ETIQUETA
     n0 = s.items[0]
     ahora_utc = ahora.astimezone(dt.timezone.utc)
     tengo = " · la tienes" if s.rec.get("tengo") else ""
     return "\n".join([f"📰 {b(s.emisor + ' (' + s.ticker + ')')} · {esc(ETIQUETA[s.cat])}{tengo}", f"«{esc(n0.titulo[:260])}»",
-                      it(f"{', '.join(esc(x) for x in s.fuentes[:2])} · {hace(n0.ts.isoformat(), ahora_utc)}"), _impacto_txt(s),
+                      it(f"{', '.join(esc(x) for x in s.fuentes[:2])} · {hace(n0.ts.isoformat(), ahora_utc)}"), _impacto_txt(s), *bloque_afectadas(afectadas),
                       it("Noticia informativa: por sí sola no es motivo para comprar ni vender.")])
 
 
@@ -602,7 +615,7 @@ QUE_HACER_NOTICIA = {
 }
 
 
-def msg_noticia_bvc(s: Any, ahora: dt.datetime, cfg: dict[str, Any], sugerencia: dict[str, Any] | None = None) -> str:
+def msg_noticia_bvc(s: Any, ahora: dt.datetime, cfg: dict[str, Any], sugerencia: dict[str, Any] | None = None, afectadas: list[dict[str, Any]] | None = None) -> str:
     """Aviso automático de una noticia de alto impacto de una empresa de la BVC: qué pasó, qué hacer según la evidencia, qué esperar y por cuánto tiempo."""
     from .noticias_bvc import ETIQUETA
     rec, n0 = s.rec, s.items[0]
@@ -611,7 +624,7 @@ def msg_noticia_bvc(s: Any, ahora: dt.datetime, cfg: dict[str, Any], sugerencia:
     L = [f"🚨 {b('Noticia de alto impacto: ' + s.emisor)}  {it(f'{fecha(ahora)} {ahora:%H:%M}')}",
          f"📰 «{esc(n0.titulo[:300])}»", it(f"{fuentes} · {hace(n0.ts.isoformat(), ahora_utc)}"),
          f"{'📈' if s.sentido > 0 else '📉'} {b('Tipo')}: {esc(ETIQUETA[s.cat])}", _impacto_txt(s),
-         _precio_txt(rec.get("pulso"), C.mercado_abierto(ahora, cfg)), ""]
+         *bloque_afectadas(afectadas), _precio_txt(rec.get("pulso"), C.mercado_abierto(ahora, cfg)), ""]
     cuando = fecha(rec["cuando"]) if rec.get("cuando") else ""
     L.append(f"👉 {b('Qué hacer')}: " + QUE_HACER_NOTICIA[rec["accion"]].format(t=esc(rec["ticker"]), cuando=cuando, hora=rec.get("hora", "")))
     L.append(f"📊 {b('Qué esperar')}: " + " ".join(_evidencia_txt(rec.get("evidencia"), rec["costo"])))
@@ -717,7 +730,8 @@ def msg_macro_movimiento(factor: dict[str, Any], imp: dict[str, Any], ahora: dt.
     return "\n".join(L)
 
 
-def msg_macro_titular(g: dict[str, Any], tab: list[dict[str, Any]], impactos: dict[str, dict[str, Any]], ahora: dt.datetime) -> str:
+def msg_macro_titular(g: dict[str, Any], tab: list[dict[str, Any]], impactos: dict[str, dict[str, Any]], ahora: dt.datetime,
+                      por_punto: dict[str, dict[str, Any]] | None = None) -> str:
     """Aviso automático: titular macro importante + cómo están reaccionando los mercados + acciones expuestas."""
     ahora_utc = ahora.astimezone(dt.timezone.utc)
     L = [f"🏦 {b('Noticia macro: ' + g['nombre'])}  {it(f'{fecha(ahora)} {ahora:%H:%M}')}"]
@@ -734,7 +748,22 @@ def msg_macro_titular(g: dict[str, Any], tab: list[dict[str, Any]], impactos: di
                 L += [it(f"Por {x['nombre']}:"), *bloque_impacto(x, imp)]
     else:
         nombres = ", ".join(x["nombre"] for x in ligados) or "los mercados"
-        L.append(f"{b('Cómo reacciona el mercado ahora')}: por ahora {esc(nombres)} se mueven dentro de lo normal. El titular todavía no está moviendo los precios.")
+        L.append(f"{b('Cómo reacciona el mercado ahora')}: por ahora {esc(nombres)} {'se mueve' if len(ligados) == 1 else 'se mueven'} dentro de lo normal. "
+                 "El titular todavía no está moviendo los precios.")
+    quietos = [x for x in ligados if not x["notable"]]
+    listos = False
+    for x in quietos:                                                                  # aunque el factor no se haya movido: a quién le pegaría y cuánto
+        imp = (por_punto or {}).get(x["clave"])
+        if imp and (imp["beneficiadas"] or imp["afectadas"]):
+            if not listos:
+                L += ["", f"📊 {b('Acciones de la BVC afectadas')} " + it("(cuánto suele moverse cada una por cada 1% del factor)")]
+                listos = True
+            sube = _lista_impacto(imp["beneficiadas"], 6)
+            baja = _lista_impacto(imp["afectadas"], 6)
+            L.append(f"Si {esc(x['nombre'])} sube 1%: " + " · ".join(p for p in (("🟢 " + sube) if sube else "", ("🔴 " + baja) if baja else "") if p)
+                     + it(" (si baja 1%, lo contrario)"))
+    if not movidos and not listos:
+        L.append("Ninguna acción de la BVC ha mostrado una relación firme con estos factores en los últimos 12 meses.")
     L += ["", f"👉 {b('Qué hacer')}: nada por el titular. Si de verdad pesa, lo verás en los precios y te aviso con el movimiento y las acciones afectadas.",
           it("Todos los factores ahora: /macro")]
     return "\n".join(L)

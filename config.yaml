@@ -496,6 +496,12 @@ noticias_bvc:
         - 'Ecopetrol OR Bancolombia OR "Grupo Cibest" OR "Grupo Argos" OR "Cementos Argos" OR "Grupo Sura"'
         - '"Interconexión Eléctrica" OR "Grupo Energía Bogotá" OR Celsia OR "Grupo Éxito" OR Nutresa OR Promigas OR Terpel'
         - '"Mineros S.A." OR Corficolombiana OR "Banco de Bogotá" OR "Grupo Aval" OR Canacol OR "Enka de Colombia" OR "PEI" inmobiliarias'
+  # Empresas con vínculo de propiedad: una noticia de una puede pegarle a las otras (sólo se muestra si además la relación medida es firme).
+  # Las dos series de un mismo emisor (ordinaria y preferencial) se tratan siempre como la misma empresa.
+  grupos:
+    - [GRUPOARGOS, PFGRUPOARG, CEMARGOS, PFCEMARGOS, CELSIA]          # Grupo Argos controla Cementos Argos y Celsia
+    - [GRUPOSURA, PFSURA, PFBCOLOM, BCOLOMBIA]                        # Grupo Sura es accionista de Bancolombia (Grupo Cibest)
+    - [PFAVAL, AVAL, BOGOTA, CORFICOLCF, PFCORFICOL, PROMIGAS]        # Grupo Aval controla Banco de Bogotá y Corficolombiana; Corficolombiana, Promigas
   # Emisores de la BVC: cómo los nombran los titulares (alias), con qué razón social aparecen en la Superfinanciera (sfc) y su código allá (sfc_id: tipo, código).
   # ambiguo: true = el nombre es una palabra corriente; sólo cuenta si el titular habla de bolsa (acción, utilidad, dividendo…).
   emisores:
