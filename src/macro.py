@@ -127,9 +127,21 @@ def sensibilidades(f: Any, cfg: dict[str, Any], tickers: list[str]) -> dict[str,
     return v or {}
 
 
+def sector_de(cfg: dict[str, Any]) -> dict[str, str]:
+    """{acción: nombre de su sector} según noticias_bvc.indirectos.sectores."""
+    sec = (cfg["noticias_bvc"].get("indirectos") or {}).get("sectores") or {}
+    return {t: s["nombre"] for s in sec.values() for t in s["tickers"]}
+
+
 def relacionadas(cfg: dict[str, Any]) -> dict[str, dict[str, str]]:
-    """{acción: {otra: 'misma' | 'grupo'}}: 'misma' = otra serie del mismo emisor (ordinaria/preferencial); 'grupo' = vínculo de propiedad (noticias_bvc.grupos)."""
+    """{acción: {otra: 'misma' | 'grupo' | 'sector'}}: 'misma' = otra serie del mismo emisor (ordinaria/preferencial); 'grupo' = vínculo de propiedad
+    (noticias_bvc.grupos); 'sector' = competidoras del mismo sector (noticias_bvc.indirectos.sectores). Si hay dos vínculos, queda el más fuerte."""
     out: dict[str, dict[str, str]] = {}
+    for s in ((cfg["noticias_bvc"].get("indirectos") or {}).get("sectores") or {}).values():
+        for a in s["tickers"]:
+            for b in s["tickers"]:
+                if a != b:
+                    out.setdefault(a, {})[b] = "sector"
     for g in cfg["noticias_bvc"].get("grupos", []):
         for a in g:
             for b in g:
@@ -151,6 +163,7 @@ def contagio(f: Any, cfg: dict[str, Any], tickers: list[str]) -> dict[str, dict[
     25 acciones siempre encuentra parejas "relacionadas" por casualidad. Caché de 12 horas."""
     m = cfg["macro_vivo"]
     rel = relacionadas(cfg)
+    tope_sector = float((cfg["noticias_bvc"].get("indirectos") or {}).get("tope_sector", 0.5))
 
     def calcular() -> dict[str, Any]:
         r = {}
@@ -174,23 +187,38 @@ def contagio(f: Any, cfg: dict[str, Any], tickers: list[str]) -> dict[str, dict[
                 elif destino in r:
                     b = _beta(r[destino], x, mercado)
                     if b and abs(b["t"]) >= m["t_minimo"] and b["beta"] > 0:
-                        fila[destino] = round(min(b["beta"], 1.0), 3)
+                        fila[destino] = round(min(b["beta"], tope_sector if tipo == "sector" else 1.0), 3)
             out[origen] = fila
         for origen, vecinos in rel.items():                                             # acción sin historia: al menos su otra serie
             out.setdefault(origen, {t: 1.0 for t, tipo in vecinos.items() if tipo == "misma"})
         return out
-    return f._con_cache("macro_contagio|" + ",".join(sorted(tickers)), 12 * 60, calcular, "contagio entre acciones") or {}
+    return f._con_cache("macro_contagio3|" + ",".join(sorted(tickers)), 12 * 60, calcular, "contagio entre acciones") or {}
 
 
-def afectadas_por_noticia(ticker: str, impacto_pct: float | None, sentido: int, vecinos: dict[str, float], cfg: dict[str, Any], tenidos: set[str]) -> list[dict[str, Any]]:
-    """Acciones de la BVC a las que les pega una noticia de `ticker`, con su porcentaje estimado y signo: primero la propia y luego las que suelen moverse
-    con ella (efecto = su sensibilidad × el impacto estimado de la noticia). Sin impacto medido sólo se indica el sentido (efecto None)."""
-    out = [dict(ticker=ticker, efecto=impacto_pct, sentido=sentido, tengo=ticker in tenidos, propia=True)]
+def afectadas_por_noticia(ticker: str, impacto_pct: float | None, sentido: int, vecinos: dict[str, float], cfg: dict[str, Any], tenidos: set[str],
+                          cat: str | None = None) -> list[dict[str, Any]]:
+    """Acciones de la BVC a las que les pega una noticia de `ticker`, con su porcentaje estimado y signo: primero la propia (efecto directo) y luego las
+    indirectas, cada una con su `via` y su `motivo`:
+      · 'misma'  = la otra serie de la misma empresa (se mueve igual);
+      · 'grupo'  = empresa del mismo grupo (matriz, filial o accionista), según cuánto suele moverse con ella;
+      · 'sector' = competidora del mismo sector, sólo si la noticia es de un tipo que habla del negocio del sector (`cat` en indirectos.cats_sector).
+    Efecto = su sensibilidad medida × el impacto estimado de la noticia. Sin impacto medido sólo se indica la propia (efecto None)."""
+    out = [dict(ticker=ticker, efecto=impacto_pct, sentido=sentido, tengo=ticker in tenidos, propia=True, via="directo", motivo="")]
     if impacto_pct is None:
         return out
     limite = cfg["macro_vivo"]["efecto_minimo"]
-    otras = [dict(ticker=t, efecto=b * impacto_pct, sentido=0 if sentido == 0 else (1 if b * impacto_pct > 0 else -1), tengo=t in tenidos, propia=False) for t, b in vecinos.items()]
-    return out + sorted([x for x in otras if abs(x["efecto"]) >= limite], key=lambda x: -abs(x["efecto"]))[:6]
+    rel, sector = relacionadas(cfg).get(ticker, {}), sector_de(cfg)
+    cats = set((cfg["noticias_bvc"].get("indirectos") or {}).get("cats_sector") or [])
+    otras = []
+    for t, b in vecinos.items():
+        via = rel.get(t, "grupo")
+        if via == "sector" and cat not in cats:                                        # una compra o un nombramiento de un banco no dice nada de los demás bancos
+            continue
+        motivo = {"misma": "la misma empresa", "grupo": "mismo grupo empresarial"}.get(via) or f"mismo sector: {sector.get(t, 'el suyo')}"
+        otras.append(dict(ticker=t, efecto=b * impacto_pct, sentido=0 if sentido == 0 else (1 if b * impacto_pct > 0 else -1), tengo=t in tenidos, propia=False,
+                          via=via, motivo=motivo))
+    orden = {"misma": 0, "grupo": 1, "sector": 2}
+    return out + sorted([x for x in otras if abs(x["efecto"]) >= limite], key=lambda x: (orden[x["via"]], -abs(x["efecto"])))[:7]
 
 
 def impacto(factor: dict[str, Any], sens: dict[str, dict[str, float]], cfg: dict[str, Any], tenidos: set[str], minimo: float | None = None) -> dict[str, Any]:

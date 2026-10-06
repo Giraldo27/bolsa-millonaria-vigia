@@ -253,6 +253,18 @@ def resp_revisar(ctx: S.Contexto, args: list[str]) -> str:
             L.append(F.it("  Leo el titular, no la nota completa: ⚪ = el titular no dice si es bueno o malo."))
         else:
             L.append(f"📰 {F.b('Noticias')}: no encontré noticias de {F.esc(t)} en las últimas 24 horas (ni anuncios oficiales en la Superfinanciera).")
+        ajenas = [(x, a) for x in filas if x["ticker"] != t for a in x.get("afectadas") or [] if a["ticker"] == t and not a["propia"]][:4]
+        if ajenas:
+            L.append(f"↪️ {F.b('Noticias de otras empresas que le pegan de rebote')}:")
+            for x, a in ajenas:
+                cifra = ("±" + F.pct(abs(a["efecto"]), 1)) if a["sentido"] == 0 else F.pct(a["efecto"], 1, True)
+                L.append(f"  {'🟢' if a['sentido'] > 0 else ('🔴' if a['sentido'] < 0 else '⚪')} {F.esc(x['ticker'])}: {F.esc(x['titulo'][:120])} → a {F.esc(t)} {cifra} estimado "
+                         f"{F.it('(' + F.esc(a['motivo']) + ')')}")
+            neto = sum(a["efecto"] for _, a in ajenas if a["sentido"])
+            if neto <= -0.003:
+                contras.append("le pegan de rebote noticias negativas de empresas relacionadas")
+            elif neto >= 0.003:
+                pros.append("le ayudan de rebote noticias positivas de empresas relacionadas")
     except Exception:                                                                  # noqa: BLE001
         L.append(f"📰 {F.b('Noticias')}: no pude consultarlas ahora.")
     # liquidez

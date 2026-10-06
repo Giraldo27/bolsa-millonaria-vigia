@@ -232,3 +232,19 @@ def test_el_menu_tiene_botones_para_todos_los_analisis_nuevos():
     assert all(len(fila) <= 2 for fila in bot.MENU) and all(len(d.encode()) <= 64 for d in datos)      # dos por fila se leen bien en el celular; Telegram limita el dato a 64 bytes
     fuente = open(bot.__file__, encoding="utf-8").read()
     assert 'dato == "revisar"' in fuente and 'pend[0] == "revisar"' in fuente                          # el botón pregunta la acción y la respuesta va a /revisar
+
+
+def test_revisar_cuenta_las_noticias_de_otras_empresas_que_le_pegan_de_rebote(c, monkeypatch):
+    """Una mala noticia de Bancolombia también cuenta al revisar el Banco de Bogotá (mismo sector), con su efecto estimado."""
+    monkeypatch.setattr(LQ, "medir", liq(LQ.BUENA))
+    monkeypatch.setattr(S, "mee_de", lambda f, t, s, ahora, cfg: (0.025, "historia", None))
+    monkeypatch.setattr(M, "tablero", lambda f, cfg, ahora=None: [])
+    rebote = dict(ticker="BCOLOMBIA", efecto=-0.006, sentido=-1, tengo=False, propia=False, via="sector", motivo="mismo sector: bancos")
+    propia = dict(ticker="PFBCOLOM", efecto=-0.02, sentido=-1, tengo=False, propia=True, via="directo", motivo="")
+    monkeypatch.setattr(S, "buscar_noticias", lambda ctx_, horas=12, lector=None: ([dict(ts=AHORA, emisor="Bancolombia", ticker="PFBCOLOM", titulo="Bancolombia reporta menor utilidad",
+                                                                                         fuente="Valora Analitik", oficial=False, cat="resultados", sentido=-1, impacto=-0.02, tengo=False,
+                                                                                         afectadas=[propia, rebote])], {}))
+    t = F.plano(A.resp_revisar(c, ["bcolombia"]))
+    assert "Noticias de otras empresas que le pegan de rebote" in t
+    assert "🔴 PFBCOLOM: Bancolombia reporta menor utilidad → a BCOLOMBIA -0,6% estimado (mismo sector: bancos)" in t
+    assert "le pegan de rebote noticias negativas de empresas relacionadas" in t and "más en contra que a favor" in t

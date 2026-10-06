@@ -471,13 +471,17 @@ def buscar_noticias(ctx: Contexto, horas: float = 12, lector: Any = None) -> tup
     solo_frases = {**ctx.cfg, "analisis_noticias": {**ctx.cfg.get("analisis_noticias", {}), "leer_articulo": False, "usar_modelo": False}}      # rápido: sin descargar artículos
     filas: list[dict[str, Any]] = []
     vistos: dict[str, list[list[str]]] = {}
+    from . import macro as M
+    vecinos, vecinas_ok = vecinos_y_liquidas(ctx)                                      # a qué otras acciones les pega cada noticia (mismo grupo o mismo sector)
+    vecinas_ok = vecinas_ok | est.tenidos()
     for it in sorted(items, key=lambda i: (i.origen != "sfc", -i.ts.timestamp())):                      # lo oficial primero: si un medio repite el hecho, queda el oficial
         if it.ts < limite or it.ts > ahora_utc + dt.timedelta(minutes=10):
             continue
         for e in N.emisores_de(it, emisores):
             ticker = next((t for t in e.tickers if t in est.tenidos()), None) or next((t for t in e.tickers if t in liquidas), None)
-            if ticker is None:
-                continue                                                               # sin liquidez buena en trii: no se muestra
+            rebote = ticker is None
+            if rebote:                                                                 # sin liquidez buena en trii: sólo se muestra si le pega de rebote a una que sí
+                ticker = e.tickers[0]
             if N.es_repetida(it.titulo, vistos.get(e.nombre, []), ctx.cfg["noticias_bvc"]["parecido_repetida"]):
                 continue
             vistos.setdefault(e.nombre, []).append(sorted(N.palabras_clave(it.titulo)))
@@ -486,9 +490,43 @@ def buscar_noticias(ctx: Contexto, horas: float = 12, lector: Any = None) -> tup
             if sentido == 0:
                 sentido = analizar(e.nombre, it.titulo, it.resumen, "", solo_frases, None, {})["sentido"]
             base = N.impacto_estimado(cat, 1, estudio, ctx.cfg)
+            impacto = (sentido * base if sentido else base) if base is not None else None
+            try:
+                afectadas = [x for x in M.afectadas_por_noticia(ticker, impacto, sentido, vecinos.get(ticker, {}), ctx.cfg, est.tenidos(), cat)
+                             if x["propia"] or x["ticker"] in vecinas_ok]                 # nunca se nombran acciones sin liquidez buena en trii
+            except Exception:                                                          # noqa: BLE001
+                afectadas = []
+            if rebote and not any(not x["propia"] for x in afectadas):
+                vistos[e.nombre].pop()
+                continue
             filas.append(dict(ts=it.ts, emisor=e.nombre, ticker=ticker, titulo=it.titulo, fuente=it.fuente, oficial=it.origen == "sfc", cat=cat, sentido=sentido,
-                              impacto=(sentido * base if sentido else base) if base is not None else None, tengo=ticker in est.tenidos()))
+                              impacto=impacto, tengo=ticker in est.tenidos(), afectadas=afectadas, rebote=rebote))
     return sorted(filas, key=lambda x: -x["ts"].timestamp()), salud
+
+
+def vecinos_y_liquidas(ctx: Contexto) -> tuple[dict[str, dict[str, float]], set[str]]:
+    """({acción: {otra a la que le pega: cuánto}}, las de esas que se negocian bien en trii). Nunca lanza: sin el cálculo no hay efectos indirectos."""
+    try:
+        from . import macro as M
+        from .construir import universo_candidatos
+        vecinos = M.contagio(ctx.f, ctx.cfg, universo_candidatos(ctx.cfg))
+        return vecinos, acciones_liquidas(ctx, {t for v in vecinos.values() for t in v})
+    except Exception:                                                                  # noqa: BLE001
+        return {}, set()
+
+
+def destinos_de_rebote(ctx: Contexto, tickers: list[str], cat: str, vecinos: dict[str, dict[str, float]], liquidas: set[str], tenidos: set[str]) -> list[str]:
+    """Acciones líquidas (o tuyas) de OTRA empresa a las que les pega de rebote una noticia de tipo `cat` de la empresa de `tickers`."""
+    from . import macro as M
+    cats = set((ctx.cfg["noticias_bvc"].get("indirectos") or {}).get("cats_sector") or [])
+    rel = M.relacionadas(ctx.cfg)
+    out = []
+    for t in tickers:
+        for d in vecinos.get(t, {}):
+            if d in tickers or d not in (liquidas | tenidos) or (rel.get(t, {}).get(d) == "sector" and cat not in cats):
+                continue
+            out.append(d)
+    return list(dict.fromkeys(out))
 
 
 def resp_nuevas(ctx: Contexto) -> str:
@@ -1045,22 +1083,16 @@ def tick_noticias(ctx: Contexto, lector: Any, mem: Any, sugerencia: dict[str, An
     """Una ronda del vigía de noticias de la BVC (cada 2 minutos): lee las fuentes y avisa SÓLO lo nuevo de alto impacto. Devuelve los mensajes generados."""
     from . import noticias_bvc as N
     est = leer_estado(ctx)
-    senales, salud = N.ronda(lector, mem, ctx.f, ctx.ahora, ctx.cfg, est.tenidos())
+    vecinos, liquidas = vecinos_y_liquidas(ctx)                                        # a qué otras acciones les pega cada empresa (queda en caché: no frena la ronda)
+    senales, salud = N.ronda(lector, mem, ctx.f, ctx.ahora, ctx.cfg, est.tenidos(), pega_a=lambda e, cat: destinos_de_rebote(ctx, e.tickers, cat, vecinos, liquidas, est.tenidos()))
     mem.ultimos_items = getattr(lector, "ultimos", [])                                 # los titulares recién leídos también sirven para la revisión macro
     mensajes = []
-    vecinos: dict[str, dict[str, float]] = {}
-    if senales:                                                                        # a qué otras acciones de la BVC les pega (sólo se calcula si hay algo que avisar)
-        try:
-            from . import macro as M
-            from .construir import universo_candidatos
-            vecinos = M.contagio(ctx.f, ctx.cfg, universo_candidatos(ctx.cfg))
-        except Exception:                                                              # noqa: BLE001 — sin ese cálculo el aviso sale igual, sólo con la acción propia
-            vecinos = {}
-    liquidas = acciones_liquidas(ctx, {t for v in vecinos.values() for t in v}) if senales else set()
     for s in senales:
         from . import macro as M
-        afectadas = M.afectadas_por_noticia(s.ticker, s.impacto, s.sentido, vecinos.get(s.ticker, {}), ctx.cfg, est.tenidos())
+        afectadas = M.afectadas_por_noticia(s.ticker, s.impacto, s.sentido, vecinos.get(s.ticker, {}), ctx.cfg, est.tenidos(), s.cat)
         afectadas = [x for x in afectadas if x["propia"] or x["tengo"] or x["ticker"] in liquidas]      # nunca se listan acciones sin liquidez buena en trii
+        if getattr(s, "rebote", False) and not any(not x["propia"] for x in afectadas):
+            continue                                                                   # era sólo por el rebote y el efecto estimado no alcanza el mínimo: no hay nada que avisar
         if s.nivel != "alto":                                                          # relevante u otra noticia de la empresa: aviso corto con su impacto estimado en %
             m = F.msg_noticia_relevante(s, ctx.ahora, ctx.cfg, afectadas)
             mensajes.append(m)

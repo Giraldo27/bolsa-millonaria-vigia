@@ -535,6 +535,17 @@ noticias_bvc:
     - [GRUPOARGOS, PFGRUPOARG, CEMARGOS, PFCEMARGOS, CELSIA]          # Grupo Argos controla Cementos Argos y Celsia
     - [GRUPOSURA, PFSURA, PFBCOLOM, BCOLOMBIA]                        # Grupo Sura es accionista de Bancolombia (Grupo Cibest)
     - [PFAVAL, AVAL, BOGOTA, CORFICOLCF, PFCORFICOL, PROMIGAS]        # Grupo Aval controla Banco de Bogotá y Corficolombiana; Corficolombiana, Promigas
+    - [ECOPETROL, ISA]                                                # Ecopetrol es dueña de la mayoría de ISA
+  # Efecto INDIRECTO por sector: una noticia de una empresa puede leerse como señal para sus pares (resultados de un banco → los demás bancos).
+  # Sólo se muestra si (a) el tipo de noticia es de los que hablan del negocio del sector y (b) la relación medida entre las dos acciones es firme.
+  indirectos:
+    sectores:
+      bancos: {nombre: "bancos", tickers: [PFBCOLOM, BCOLOMBIA, BOGOTA, AVAL, PFAVAL, BHI]}
+      energia: {nombre: "energía eléctrica", tickers: [ISA, GEB, CELSIA]}
+      petroleo_gas: {nombre: "petróleo y gas", tickers: [ECOPETROL, CNEC, TERPEL, PROMIGAS]}
+      consumo: {nombre: "consumo", tickers: [EXITO, NUTRESA]}
+    cats_sector: [resultados, guia, calificacion, legal, analistas]   # tipos que suelen leerse como señal del sector; una compra o un nombramiento no
+    tope_sector: 0.5                                                  # un par del sector nunca recibe más de la mitad del impacto de la noticia
   # Emisores de la BVC: cómo los nombran los titulares (alias), con qué razón social aparecen en la Superfinanciera (sfc) y su código allá (sfc_id: tipo, código).
   # ambiguo: true = el nombre es una palabra corriente; sólo cuenta si el titular habla de bolsa (acción, utilidad, dividendo…).
   emisores:

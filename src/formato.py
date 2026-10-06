@@ -608,10 +608,24 @@ def bloque_afectadas(afectadas: list[dict[str, Any]] | None) -> list[str]:
             return f"⚪ {b(x['ticker'])} " + (("±" + pct(abs(x["efecto"]), 1)) if x["efecto"] is not None else "sin cifra") + (" (la tienes)" if x["tengo"] else "")
         cifra = pct(x["efecto"], 1, True) if x["efecto"] is not None else ("sube (+)" if x["sentido"] > 0 else "baja (−)")
         return f"{'🟢' if x['sentido'] > 0 else '🔴'} {b(x['ticker'])} {cifra}" + (" (la tienes)" if x["tengo"] else "")
-    L = [f"📊 {b('Acciones de la BVC afectadas')}: " + " · ".join(una(x) for x in afectadas)]
-    if len(afectadas) > 1:
-        L.append(it("Las demás son su otra serie o empresas de su mismo grupo, según cuánto suelen moverse con ella."))
+    directas = [x for x in afectadas if x.get("propia") or x.get("via") == "misma"]
+    indirectas = [x for x in afectadas if x not in directas]
+    L = [f"📊 {b('Acciones de la BVC afectadas')}: " + " · ".join(una(x) for x in directas or afectadas[:1])]
+    if indirectas:
+        L.append(f"↪️ {b('Efecto indirecto')}: " + " · ".join(una(x) + f" {it('(' + esc(x.get('motivo') or 'relacionada') + ')')}" for x in indirectas))
+        L.append(it("Indirecto = empresas del mismo grupo o del mismo sector, según cuánto suelen moverse con ella. Es menos seguro que el efecto directo."))
     return L
+
+
+def indirectas_txt(afectadas: list[dict[str, Any]] | None) -> str:
+    """En una línea, a qué otras acciones les pega una noticia (para las listas de noticias): 'ISA +0,4% (mismo grupo empresarial)'."""
+    otras = [x for x in (afectadas or []) if not x.get("propia")]
+    if not otras:
+        return ""
+    def una(x: dict[str, Any]) -> str:
+        cifra = ("±" + pct(abs(x["efecto"]), 1)) if x["sentido"] == 0 else pct(x["efecto"], 1, True)
+        return f"{b(x['ticker'])} {cifra} ({esc(x.get('motivo') or 'relacionada')})"
+    return "↪️ también: " + " · ".join(una(x) for x in otras[:4])
 
 
 def analisis_txt(s: Any) -> list[str]:
@@ -634,9 +648,11 @@ def msg_noticia_relevante(s: Any, ahora: dt.datetime, cfg: dict[str, Any], afect
     n0 = s.items[0]
     ahora_utc = ahora.astimezone(dt.timezone.utc)
     tengo = " · la tienes" if s.rec.get("tengo") else ""
+    rebote = ([f"↪️ {b('Te aviso por el efecto indirecto')}: {esc(s.ticker)} no pasa el filtro de liquidez en trii (no la recomiendo), pero su noticia le pega de rebote "
+               "a acciones que sí se negocian bien o que tienes."] if getattr(s, "rebote", False) else [])
     return "\n".join([f"📰 {b(s.emisor + ' (' + s.ticker + ')')} · {esc(ETIQUETA[s.cat])}{tengo}", f"«{esc(n0.titulo[:260])}»",
                       it(f"{', '.join(esc(x) for x in s.fuentes[:2])} · {hace(n0.ts.isoformat(), ahora_utc)}"), *analisis_txt(s), _impacto_txt(s), *bloque_afectadas(afectadas),
-                      _movio_txt(s.rec.get("pulso"), C.mercado_abierto(ahora, cfg)),
+                      *rebote, _movio_txt(s.rec.get("pulso"), C.mercado_abierto(ahora, cfg)),
                       it("Noticia informativa: por sí sola no es motivo para comprar ni vender.")])
 
 
@@ -784,8 +800,9 @@ def msg_noticias_actualizadas(filas: list[dict[str, Any]], salud: dict[str, bool
         else:
             imp = pct(x["impacto"], 1, True)
         marca = "🟢" if x["sentido"] > 0 else ("🔴" if x["sentido"] < 0 else "⚪")
-        return (f"{marca} {b(x['ticker'])}{' (la tienes)' if x['tengo'] else ''} · {b(imp)} · {esc(ETIQUETA[x['cat']])}\n"
-                f"   «{esc(x['titulo'][:150])}» {it('(' + esc(x['fuente']) + ', ' + hace(x['ts'].isoformat(), ahora_utc) + ')')}")
+        ind = indirectas_txt(x.get("afectadas"))
+        return (f"{marca} {b(x['ticker'])}{' (la tienes)' if x['tengo'] else ''}{' (poca liquidez: no la recomiendo)' if x.get('rebote') else ''} · {b(imp)} · {esc(ETIQUETA[x['cat']])}\n"
+                f"   «{esc(x['titulo'][:150])}» {it('(' + esc(x['fuente']) + ', ' + hace(x['ts'].isoformat(), ahora_utc) + ')')}" + (f"\n   {ind}" if ind else ""))
     oficiales, prensa = [x for x in filas if x["oficial"]], [x for x in filas if not x["oficial"]]
     if oficiales:
         L += ["", f"🏛 {b('Información oficial (Superfinanciera)')}", *[una(x) for x in oficiales[: max_n // 2]]]
@@ -796,7 +813,7 @@ def msg_noticias_actualizadas(filas: list[dict[str, Any]], salud: dict[str, bool
     resto = len(filas) - min(len(oficiales), max_n // 2) - min(len(prensa), max_n - min(len(oficiales), max_n // 2))
     if resto > 0:
         L.append(it(f"…y {resto} más antiguas."))
-    L += ["", it("El % es el impacto estimado (+ sube, − baja, ± neutra): lo que suele mover a la acción una noticia así. Solo empresas que se negocian bien en trii. "
+    L += ["", it("El % es el impacto estimado (+ sube, − baja, ± neutra): lo que suele mover a la acción una noticia así. Solo empresas que se negocian bien en trii, o cuya noticia le pega de rebote (↪️) a una que sí. "
                  "Para qué comprar: /comprar")]
     return "\n".join(L)
 

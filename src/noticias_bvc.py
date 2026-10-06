@@ -557,15 +557,19 @@ class Senal:
     nivel: str = "alto"                     # alto (aviso completo con recomendación) | medio (relevante, aviso corto) | bajo (otra noticia de la empresa, aviso corto)
     impacto: float | None = None            # impacto estimado sobre el precio, con signo (+0,012 = +1,2 %). Si sentido == 0 es la magnitud (se muestra como ±)
     analisis: dict[str, Any] | None = None  # cuando el titular no decía el sentido: resultado de analisis_noticia.analizar (sentido, confianza, motivos, metodo)
+    rebote: bool = False                    # la empresa NO pasa el filtro de liquidez: se avisa sólo porque le pega de rebote a acciones que sí (mismo grupo o sector)
 
     @property
     def fuentes(self) -> list[str]:
         return list(dict.fromkeys(i.fuente for i in self.items))
 
 
-def ronda(lector: Lector, mem: Memoria, f: Any, ahora: dt.datetime, cfg: dict[str, Any], tenidos: set[str] | None = None) -> tuple[list[Senal], dict[str, bool]]:
+def ronda(lector: Lector, mem: Memoria, f: Any, ahora: dt.datetime, cfg: dict[str, Any], tenidos: set[str] | None = None,
+          pega_a: Any = None) -> tuple[list[Senal], dict[str, bool]]:
     """Una pasada completa: leer → quedarse con lo nuevo de emisores de la BVC → clasificar → puntuar (con el precio) → recomendar.
-    Devuelve (señales de alto impacto para avisar, salud de las fuentes). La primera vez sólo toma la línea base."""
+    Devuelve (señales de alto impacto para avisar, salud de las fuentes). La primera vez sólo toma la línea base.
+    `pega_a(emisor, tipo)` → acciones líquidas (o tuyas) a las que esa noticia les pega de rebote: con eso también se avisa la noticia de una empresa
+    que no pasa el filtro de liquidez, como informativa y sin recomendarla."""
     n = cfg["noticias_bvc"]
     tenidos = tenidos or set()
     items, salud = lector.todo(ahora)
@@ -615,8 +619,11 @@ def ronda(lector: Lector, mem: Memoria, f: Any, ahora: dt.datetime, cfg: dict[st
             continue                                                                   # ni con el precio a favor llegaría: no se gasta una consulta de precios
         ticker, p = elegir_ticker(f, e, cfg, ahora)
         tengo = bool(set(e.tickers) & tenidos)
+        rebote = False
         if not tengo and (p is None or p["liquidez_mm"] < liq_min):
-            continue                                                                   # sin liquidez buena en trii (o sin precio para comprobarla): no se avisa, salvo que la tengas
+            if not (pega_a and pega_a(e, cat)):
+                continue                                                               # sin liquidez buena en trii (o sin precio para comprobarla): no se avisa, salvo que la tengas
+            rebote = True                                                              # …o que le pegue de rebote a una acción que sí se negocia bien
         analisis = None
         if c.sentido == 0:                                                             # el titular no dice si sube o baja: se analiza el texto (y el artículo, y el modelo si hay clave)
             from .analisis_noticia import analizar
@@ -637,6 +644,8 @@ def ronda(lector: Lector, mem: Memoria, f: Any, ahora: dt.datetime, cfg: dict[st
             nivel = "bajo"
         else:
             continue
+        if rebote and nivel == "alto":
+            nivel = "medio"                                                            # nunca se recomienda comprar una acción que no pasa el filtro: aviso informativo
         items = sorted(g["items"], key=lambda i: (i.origen != "sfc", -i.ts.timestamp()))
         previos = [x[1] for x in titulos.get(nombre, [])]
         if nivel == "bajo":
@@ -656,7 +665,7 @@ def ronda(lector: Lector, mem: Memoria, f: Any, ahora: dt.datetime, cfg: dict[st
         rec = recomendar(cat, sentido or 1, ticker, p, ahora, cfg, tengo, estudio, c.sentido)
         base_imp = impacto_estimado(cat, 1, estudio, cfg)
         senales.append(Senal(nombre, ticker, cat, sentido, puntaje, items, rec, ahora_utc, nivel,
-                             (sentido * base_imp if sentido else base_imp) if base_imp is not None else None, analisis))
+                             (sentido * base_imp if sentido else base_imp) if base_imp is not None else None, analisis, rebote))
     senales.sort(key=lambda s: -s.puntaje)                                              # las más importantes salen primero
     if n["max_por_ronda"]:
         senales = senales[: n["max_por_ronda"]]

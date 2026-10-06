@@ -755,3 +755,38 @@ def test_la_ronda_del_servicio_manda_el_segundo_aviso(tmp_path, mem, monkeypatch
     S.tick_noticias(ctx(tmp_path, Fuentes({"ECOPETROL": 0.001}, vol=5e7), dry=False), lec, mem)
     out = S.tick_noticias(ctx(tmp_path, Fuentes({"ECOPETROL": 0.04}, vol=5e7), dry=False, ahora=bog(2026, 10, 6, 10, 30)), lec, mem)
     assert len(out) == 1 and "La noticia ya mueve el precio: ECOPETROL +3,9%" in F.plano(out[0]) and len(enviados) == 2
+
+
+# =============================== noticias que pegan de rebote (efecto indirecto) ===============================
+def test_la_noticia_de_una_empresa_poco_liquida_se_avisa_si_le_pega_de_rebote_a_una_que_si_se_negocia(mem):
+    """Grupo Sura casi no se negocia en trii, pero es accionista de Bancolombia: su noticia importa por el rebote. Se avisa como informativa, nunca para comprarla."""
+    poco = lambda t: 1e4                                                                # todo negocia unos $ 10 millones al día: nada pasa el filtro
+    lec = con_base(mem)
+    lec.items = [item("Grupo Sura reporta utilidad récord y sube 40 % frente al año anterior", fuente="Valora Analitik"),
+                 item("Utilidad de Grupo Sura crece 40 % en el trimestre", fuente="La República")]
+    assert N.ronda(lec, mem, Fuentes({"GRUPOSURA": 0.03}, vol=poco), AHORA, CFG)[0] == []                 # sin efecto indirecto conocido: no se avisa (como antes)
+    mem2 = N.Memoria(mem.ruta.with_name("otra.json"))
+    lec2 = con_base(mem2)
+    lec2.items = list(lec.items)
+    pedidos = []
+    senales, _ = N.ronda(lec2, mem2, Fuentes({"GRUPOSURA": 0.03}, vol=poco), AHORA, CFG, pega_a=lambda e, cat: pedidos.append((e.nombre, cat)) or ["PFBCOLOM"])
+    s = next(x for x in senales if x.cat == "resultados")
+    assert ("Grupo Sura", "resultados") in pedidos and s.emisor == "Grupo Sura" and s.sentido == 1
+    assert all(x.rebote and x.nivel != "alto" for x in senales)                                                            # aunque el puntaje dé para "alto", no se recomienda comprar lo que no pasa el filtro
+    afectadas = [dict(ticker=s.ticker, efecto=s.impacto, sentido=1, tengo=False, propia=True, via="directo", motivo=""),
+                 dict(ticker="PFBCOLOM", efecto=0.004, sentido=1, tengo=False, propia=False, via="grupo", motivo="mismo grupo empresarial")]
+    t = F.plano(F.msg_noticia_relevante(s, AHORA, CFG, afectadas))
+    assert "Te aviso por el efecto indirecto" in t and "no pasa el filtro de liquidez en trii (no la recomiendo)" in t
+    assert "↪️ Efecto indirecto: 🟢 PFBCOLOM +0,4% (mismo grupo empresarial)" in t
+    sin_jerga(t)
+
+
+def test_los_destinos_de_rebote_son_solo_los_que_se_negocian_bien_o_tienes_y_el_sector_depende_del_tipo():
+    ctx = SimpleNamespace(cfg=CFG)
+    vecinos = {"GRUPOSURA": {"PFSURA": 1.0, "PFBCOLOM": 0.25}, "PFSURA": {"GRUPOSURA": 1.0, "PFBCOLOM": 0.20}, "BHI": {"PFBCOLOM": 0.22, "BOGOTA": 0.3}}
+    d = lambda tickers, cat, liquidas, tenidos=frozenset(): S.destinos_de_rebote(ctx, tickers, cat, vecinos, set(liquidas), set(tenidos))      # noqa: E731
+    assert d(["GRUPOSURA", "PFSURA"], "fusion", {"PFBCOLOM"}) == ["PFBCOLOM"]             # mismo grupo: cualquier tipo de noticia; su otra serie no cuenta
+    assert d(["GRUPOSURA", "PFSURA"], "fusion", set()) == []                             # si la afectada tampoco se negocia bien, no hay a quién avisar
+    assert d(["BHI"], "resultados", {"PFBCOLOM"}) == ["PFBCOLOM"]                        # mismo sector: sólo con noticias del negocio…
+    assert d(["BHI"], "direccion", {"PFBCOLOM"}) == []                                   # …un nombramiento no
+    assert d(["BHI"], "resultados", set(), {"BOGOTA"}) == ["BOGOTA"]                     # lo que tienes siempre cuenta
