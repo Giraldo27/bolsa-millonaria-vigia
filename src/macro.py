@@ -37,23 +37,15 @@ def _historia(f: Any, simbolo: str, dias: int = 420) -> pd.Series:
     return d["Close"] if d is not None and len(d) else pd.Series(dtype=float)
 
 
-def _ahora(f: Any, simbolo: str) -> dict[str, float] | None:
-    def q() -> dict[str, float]:
-        fi = f.yf.Ticker(simbolo).fast_info
-        return {"precio": float(fi["last_price"]), "previo": float(fi["previous_close"])}
-    try:
-        v = f._con_cache(f"macro_q|{simbolo}", 1.5, q, f"macro {simbolo}")
-        return v if v and v["precio"] > 0 and v["previo"] > 0 else None
-    except Exception:                                                                  # noqa: BLE001
-        return None
-
-
-def tablero(f: Any, cfg: dict[str, Any]) -> list[dict[str, Any]]:
-    """Cada factor macro ahora: cambio de hoy, cuántas veces lo normal es (z) y si es un movimiento fuerte. Un factor sin datos se omite (no se inventa)."""
+def tablero(f: Any, cfg: dict[str, Any], ahora: Any = None) -> list[dict[str, Any]]:
+    """Cada factor macro: su último cambio, DE QUÉ DÍA es (`cuando`: 'hoy' o 'ayer' = la última sesión, porque hoy aún no ha negociado), cuántas veces lo
+    normal es (z) y si es fuerte. Para lo que cotiza en Nueva York se agrega `fuera` (movimiento antes de abrir o después de cerrar).
+    Un factor sin datos se omite (no se inventa). `fuerte` y `notable` sólo valen para movimientos de HOY: lo de ayer ya pasó y ya se avisó."""
+    from . import sesion as SE
     m = cfg["macro_vivo"]
     out = []
     for clave, fc in m["factores"].items():
-        q = _ahora(f, fc["simbolo"])
+        q = SE.movimiento(f, fc["simbolo"], ahora)
         try:
             h = _historia(f, fc["simbolo"])
         except Exception:                                                              # noqa: BLE001
@@ -61,14 +53,18 @@ def tablero(f: Any, cfg: dict[str, Any]) -> list[dict[str, Any]]:
         if q is None or len(h) < 60:
             continue
         en_puntos = bool(fc.get("en_puntos"))                                          # tasas: el cambio se mide en puntos, no en %
-        cambios = (h.diff() if en_puntos else h.pct_change()).dropna().tail(60)
-        sigma = float(cambios.std(ddof=1))
+        previas = h[[pd.Timestamp(x).date() < q["fecha"] for x in h.index]]            # lo "normal" se mide sin contar la sesión que se está juzgando
+        cambios = (previas.diff() if en_puntos else previas.pct_change()).dropna().tail(60)
+        sigma = float(cambios.std(ddof=1)) if len(cambios) >= 30 else float("nan")
         r = (q["precio"] - q["previo"]) if en_puntos else (q["precio"] / q["previo"] - 1)
         if not sigma or sigma != sigma or abs(r) > 0.5 and not en_puntos:              # un salto de más del 50 % es un tick erróneo de Yahoo
             continue
         z = r / sigma
+        hoy = bool(q["es_hoy"])
+        fuera = SE.fuera_de_horario(f, fc["simbolo"], ahora) if fc.get("nueva_york") else None
         out.append(dict(clave=clave, nombre=fc["nombre"], cambio=float(r), z=float(z), sigma=sigma, en_puntos=en_puntos, precio=q["precio"],
-                        fuerte=abs(z) >= m["z_alerta"], notable=abs(z) >= m["z_notable"], sube_es=fc.get("sube_es", "sube"), baja_es=fc.get("baja_es", "baja")))
+                        cuando="hoy" if hoy else "ayer", fecha=q["fecha"], fuera=fuera,
+                        fuerte=hoy and abs(z) >= m["z_alerta"], notable=hoy and abs(z) >= m["z_notable"]))
     return out
 
 

@@ -93,9 +93,14 @@ LEYENDA = ("🟢 todo normal · 🔵 cae el mercado, no tu acción · 🟡 cae s
            "⚫ no se recupera: ojo, pero no vendas solo por eso")
 
 
-def que_paso(r: ResultadoSemaforo) -> str:
+def que_paso(r: ResultadoSemaforo, hoy: dt.date | None = None) -> str:
+    """Qué hizo la acción. Si la sesión evaluada no es la de hoy (antes de abrir, fin de semana), se dice de qué día es: no se presenta lo de ayer como de hoy."""
     mov = r.r_hoy
-    t = [f"{esc(r.ticker)} {'sube' if mov >= 0 else 'baja'} {n(abs(mov) * 100, 1)}% hoy."]
+    vieja = bool(hoy and getattr(r, "fecha", None) and r.fecha < hoy)
+    if vieja:
+        t = [f"En la última sesión ({fecha(r.fecha)}) {esc(r.ticker)} {'subió' if mov >= 0 else 'bajó'} {n(abs(mov) * 100, 1)}%. Hoy todavía no ha abierto la bolsa."]
+    else:
+        t = [f"{esc(r.ticker)} {'sube' if mov >= 0 else 'baja'} {n(abs(mov) * 100, 1)}% hoy."]
     if r.z == r.z and abs(r.z) >= 2:
         t.append(f"Es un movimiento {veces(abs(r.z))} más fuerte de lo normal para esta acción.")
     elif r.z == r.z and abs(r.z) < 1:
@@ -145,9 +150,12 @@ ACCION_COLOR = {
 }
 
 
-def cuerpo_semaforo(r: ResultadoSemaforo, traductor: Traductor | None = None) -> list[str]:
+def cuerpo_semaforo(r: ResultadoSemaforo, traductor: Traductor | None = None, hoy: dt.date | None = None) -> list[str]:
     """Qué pasó / qué significa / noticias / qué hacer (sin título), para reutilizarlo en el mensaje del semáforo y en el radar."""
-    L = [f"{b('¿Qué pasó?')} {que_paso(r)}", f"{b('¿Qué significa?')} {EXPLICA_COLOR[r.color]}", "", *bloque_noticias(r, traductor), "",
+    significa = EXPLICA_COLOR[r.color]
+    if r.color == VERDE and r.z == r.z and r.z >= 2:                                   # sube fuerte: el semáforo sólo vigila caídas, pero no es "un día normal"
+        significa = "No hay alerta (el semáforo sólo vigila caídas), pero fue una subida fuerte, mucho mayor de lo habitual: no es un día normal."
+    L = [f"{b('¿Qué pasó?')} {que_paso(r, hoy)}", f"{b('¿Qué significa?')} {significa}", "", *bloque_noticias(r, traductor), "",
          f"👉 {b('Qué hacer')}: {ACCION_COLOR[r.color]}"]
     if r.color != r.color_calculado:
         L.append(it("El corte es mañana: por eso un ROJO se trata como NEGRO."))
@@ -155,7 +163,7 @@ def cuerpo_semaforo(r: ResultadoSemaforo, traductor: Traductor | None = None) ->
 
 
 def msg_semaforo(r: ResultadoSemaforo, ahora: dt.datetime, traductor: Traductor | None = None) -> str:
-    L = [f"{EMOJI[r.color]} {b(r.ticker + ': ' + NOMBRE_COLOR[r.color])}  {it(f'{fecha(ahora)} {ahora:%H:%M}')}", "", *cuerpo_semaforo(r, traductor),
+    L = [f"{EMOJI[r.color]} {b(r.ticker + ': ' + NOMBRE_COLOR[r.color])}  {it(f'{fecha(ahora)} {ahora:%H:%M}')}", "", *cuerpo_semaforo(r, traductor, ahora.date()),
          it("Números técnicos: /detalle · Informe completo en HTML: /informe")]
     return "\n".join(L)
 
@@ -787,11 +795,22 @@ def msg_noticias_actualizadas(filas: list[dict[str, Any]], salud: dict[str, bool
 
 
 # ------------------------------------------------------------------ macroeconomía y cambios sugeridos
+def linea_fuera(f: dict[str, Any] | None) -> str:
+    """'antes de abrir hoy va +1,2 % (07:25)' / 'después del cierre va −0,8 %'. '' si no hay movimiento fuera de horario."""
+    if not f:
+        return ""
+    return f"{'antes de abrir hoy va' if f['estado'] == 'pre' else 'después del cierre va'} {pct(f['cambio'], 1, True)} ({f['hora']})"
+
+
 def _mov_factor(x: dict[str, Any]) -> str:
-    """'el petróleo (Brent) cae 3,2% (2,1 veces lo normal)'."""
-    verbo = "sube" if x["cambio"] > 0 else "cae"
+    """'el petróleo (Brent) cae 3,2% (2,1 veces lo normal)'; si el dato es de la última sesión y no de hoy, se dice ('subió 2,9% el lun 05/10')."""
     cuanto = f"{n(abs(x['cambio']), 2)} puntos" if x["en_puntos"] else pct(abs(x["cambio"]), 1)
-    return f"{x['nombre']} {verbo} {cuanto}" + (f" ({veces(abs(x['z']))} lo normal)" if abs(x["z"]) >= 1.5 else "")
+    if x.get("cuando") == "ayer":
+        base = f"{x['nombre']} {'subió' if x['cambio'] > 0 else 'cayó'} {cuanto} en la última sesión ({fecha(x['fecha'])}); hoy aún no abre"
+    else:
+        base = f"{x['nombre']} {'sube' if x['cambio'] > 0 else 'cae'} {cuanto}" + (f" ({veces(abs(x['z']))} lo normal)" if abs(x["z"]) >= 1.5 else "")
+    extra = linea_fuera(x.get("fuera"))
+    return base + (f" — {extra}" if extra else "")
 
 
 def _lista_impacto(filas: list[dict[str, Any]], max_n: int = 5) -> str:
@@ -866,12 +885,13 @@ def msg_macro_tablero(tab: list[dict[str, Any]], impactos: dict[str, dict[str, A
         return f"🌍 {b(titulo)}: no pude consultar los datos macro ahora. Prueba de nuevo en unos minutos."
     L = [f"🌍 {b(titulo)}  {it(f'{fecha(ahora)} {ahora:%H:%M}')}"]
     for x in sorted(tab, key=lambda x: -abs(x["z"])):
-        marca = "🔥" if x["fuerte"] else ("▫️" if not x["notable"] else ("🔺" if x["cambio"] > 0 else "🔻"))
+        ayer = x.get("cuando") == "ayer"
+        marca = "🕘" if ayer else ("🔥" if x["fuerte"] else ("▫️" if not x["notable"] else ("🔺" if x["cambio"] > 0 else "🔻")))
         txt = _mov_factor(x)
-        L.append(f"{marca} {esc(txt[0].upper() + txt[1:])}" + ("" if x["notable"] else " — normal"))
+        L.append(f"{marca} {esc(txt[0].upper() + txt[1:])}" + ("" if (x["notable"] or ayer) else " — normal"))
     movidos = [x for x in sorted(tab, key=lambda x: -abs(x["z"])) if x["notable"]]
     if not movidos:
-        L += ["", "Nada se mueve más de lo normal: hoy la macro no está empujando a tus acciones."]
+        L += ["", "Nada se mueve HOY más de lo normal: por ahora la macro no está empujando a tus acciones." + (" (🕘 = dato de la última sesión, no de hoy.)" if any(x.get("cuando") == "ayer" for x in tab) else "")]
     for x in movidos[:3]:
         imp = impactos.get(x["clave"])
         if imp and (imp["beneficiadas"] or imp["afectadas"]):

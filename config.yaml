@@ -427,7 +427,7 @@ macro_vivo:
     colombia: {simbolo: "ICOLCAP.CL", nombre: "la bolsa de Colombia (Colcap)"}
     nasdaq: {simbolo: "^NDX", nombre: "el Nasdaq (tecnológicas de EE. UU.)"}
     sp500: {simbolo: "^GSPC", nombre: "el S&P 500 (bolsa de EE. UU.)"}
-    brasil: {simbolo: "EWZ", nombre: "la bolsa de Brasil", controlar: sp500}
+    brasil: {simbolo: "EWZ", nombre: "la bolsa de Brasil", controlar: sp500, nueva_york: true}     # nueva_york: cotiza allá → se mira también antes de abrir y después de cerrar
     oro: {simbolo: "GC=F", nombre: "el oro", controlar: sp500}
   titulares: {ventana_min: 120, min_fuentes: 2, enfriamiento_min: 180}     # un tema macro se avisa si lo traen ≥ 2 medios; máx. una vez cada 3 h por tema
 

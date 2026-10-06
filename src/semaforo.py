@@ -74,6 +74,7 @@ class ResultadoSemaforo:
     cobertura_parcial: bool = False
     r_mercado: float = 0.0                  # parte del retorno de hoy que explica el mercado (beta × retorno del Nasdaq-100)
     resid_hoy: float = 0.0                  # parte propia del activo (retorno − mercado)
+    fecha: dt.date | None = None            # día de la sesión evaluada (antes de abrir es la de AYER: el mensaje debe decirlo)
 
 
 # ------------------------------------------------------------------ volumen intradía
@@ -297,4 +298,4 @@ def evaluar(e: EntradaSemaforo, cfg: dict[str, Any], puntuador: Callable[[str], 
         noticia_negativa=nt["negativa"], sentimiento=nt["sentimiento"], n_24h=nt["n24"], base_diaria=nt["base"], ratio_noticias=nt["ratio"],
         claves=nt["claves"], sin_noticias=not nt["disponible"], motor_sentimiento=motor, motivo=motivo,
         accion=accion_sugerida(efectivo, e.corte_manana, not nt["disponible"] and not proxy), episodio=ep2, advertencias=adv,
-        proxy_noticias=proxy, cobertura_parcial=e.cobertura_parcial, r_mercado=m["r_mercado"], resid_hoy=m["resid_hoy"])
+        proxy_noticias=proxy, cobertura_parcial=e.cobertura_parcial, r_mercado=m["r_mercado"], resid_hoy=m["resid_hoy"], fecha=e.fecha)

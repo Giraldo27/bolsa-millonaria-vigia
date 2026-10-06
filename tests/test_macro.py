@@ -1,4 +1,4 @@
-"""Pruebas de la macro en vivo (factores, sensibilidades medidas, titulares macro), de los cambios sugeridos y del resumen de la mañana."""
+﻿"""Pruebas de la macro en vivo (factores, sensibilidades medidas, titulares macro), de los cambios sugeridos y del resumen de la mañana."""
 import datetime as dt
 from types import SimpleNamespace
 
@@ -35,8 +35,10 @@ def precios(r):
 
 class Fuentes:
     """Historia: ECOPETROL sigue al petróleo (0,5 por 1), NUCO a Brasil (1 por 1), el resto no sigue a nada. `hoy` = cambio de hoy de cada factor."""
-    def __init__(self, hoy=None):
+    def __init__(self, hoy=None, dia=None, sin_sesion_hoy=()):
         self.hoy = hoy or {}
+        self.dia = pd.Timestamp(dia or AHORA.date())                                   # fecha de la barra "de hoy"
+        self.sin_sesion_hoy = set(sin_sesion_hoy)                                      # factores que hoy aún no han negociado (su último dato es de ayer)
         ruido = lambda: pd.Series(RNG.normal(0, 0.004, 300), index=IDX)                # noqa: E731
         self.acciones = {"ECOPETROL": 0.5 * R_BRENT + ruido(), "NUCO": 1.0 * R_BRASIL + ruido()}
         self.fact = {SIMB["petroleo"]: R_BRENT, SIMB["brasil"]: R_BRASIL}
@@ -50,7 +52,12 @@ class Fuentes:
         r = self.fact.get(sym, R_OTRO if sym in SIMB.values() else None)
         if r is None:
             return pd.DataFrame()
-        return pd.DataFrame({"Close": precios(r)}, index=IDX)
+        clave = next((k2 for k2, v in SIMB.items() if v == sym), None)
+        base = np.asarray(precios(r), dtype=float)
+        if clave in self.sin_sesion_hoy:                                               # la última barra es la de la sesión anterior, con el movimiento pedido
+            base = np.r_[base[:-1], base[-2] * (1 + self.hoy.get(clave, 0.0))]
+            return pd.DataFrame({"Close": base}, index=IDX)
+        return pd.DataFrame({"Close": np.r_[base, base[-1] * (1 + self.hoy.get(clave, 0.0))]}, index=IDX.append(pd.DatetimeIndex([self.dia])))
 
     def _ticker(self, sym):
         clave = next((k for k, v in SIMB.items() if v == sym), None)
@@ -70,10 +77,10 @@ def ctx(tmp_path, f, ahora=AHORA, dry=False):
 
 # =============================== factores y sensibilidades ===============================
 def test_el_tablero_dice_cuanto_se_movio_cada_factor_frente_a_lo_normal():
-    tab = {x["clave"]: x for x in M.tablero(Fuentes({"petroleo": -0.06, "brasil": 0.004}), CFG)}
+    tab = {x["clave"]: x for x in M.tablero(Fuentes({"petroleo": -0.06, "brasil": 0.004}), CFG, AHORA)}
     assert set(tab) == set(SIMB) and tab["petroleo"]["fuerte"] and tab["petroleo"]["z"] < -2 and tab["petroleo"]["cambio"] == pytest.approx(-0.06)
     assert not tab["brasil"]["fuerte"] and not tab["oro"]["notable"]
-    roto = M.tablero(Fuentes({"petroleo": 0.9}), CFG)                                               # +90 % en un día: tick erróneo, se descarta
+    roto = M.tablero(Fuentes({"petroleo": 0.9}), CFG, AHORA)                                               # +90 % en un día: tick erróneo, se descarta
     assert "petroleo" not in {x["clave"] for x in roto}
 
 
@@ -86,7 +93,7 @@ def test_las_sensibilidades_se_miden_y_solo_quedan_las_firmes():
 
 def test_el_impacto_separa_beneficiadas_y_afectadas_y_marca_lo_tuyo():
     f = Fuentes({"petroleo": -0.06})
-    tab = {x["clave"]: x for x in M.tablero(f, CFG)}
+    tab = {x["clave"]: x for x in M.tablero(f, CFG, AHORA)}
     sens = M.sensibilidades(f, CFG, ["ECOPETROL", "NUCO", "ISA"])
     imp = M.impacto(tab["petroleo"], sens["petroleo"], CFG, {"ECOPETROL"})
     assert [x["ticker"] for x in imp["afectadas"]] == ["ECOPETROL"] and imp["beneficiadas"] == [] and imp["mias"][0]["tengo"]
@@ -144,7 +151,7 @@ def test_un_tema_macro_se_avisa_si_lo_traen_dos_medios_y_no_se_repite():
 # =============================== mensajes ===============================
 def test_el_aviso_de_movimiento_macro_dice_quien_gana_y_quien_pierde():
     f = Fuentes({"petroleo": -0.06})
-    tab = {x["clave"]: x for x in M.tablero(f, CFG)}
+    tab = {x["clave"]: x for x in M.tablero(f, CFG, AHORA)}
     imp = M.impacto(tab["petroleo"], M.sensibilidades(f, CFG, ["ECOPETROL", "NUCO", "ISA"])["petroleo"], CFG, {"ECOPETROL"})
     m = F.msg_macro_movimiento(tab["petroleo"], imp, AHORA)
     t = F.plano(m)
@@ -158,7 +165,7 @@ def test_el_aviso_de_movimiento_macro_dice_quien_gana_y_quien_pierde():
 def test_el_tablero_macro_y_el_aviso_de_titular():
     f = Fuentes({"petroleo": -0.06, "brasil": 0.03})
     c = S.Contexto(CFG, f, puntuar_vader, "vader", AHORA, True, None, salida=lambda s: None)
-    tab = M.tablero(f, CFG)
+    tab = M.tablero(f, CFG, AHORA)
     sens = M.sensibilidades(f, CFG, ["ECOPETROL", "NUCO"])
     imp = {x["clave"]: M.impacto(x, sens.get(x["clave"], {}), CFG, {"NUCO"}) for x in tab if x["notable"]}
     t = F.plano(F.msg_macro_tablero(tab, imp, AHORA))
@@ -191,7 +198,7 @@ def test_el_comando_macro_responde_aunque_no_haya_datos(tmp_path):
         def _download(self, sym, **k):
             return pd.DataFrame()
     assert "no pude consultar" in F.plano(S.resp_macro(ctx(tmp_path, SinRed())))
-    assert "Nada se mueve más de lo normal" in F.plano(S.resp_macro(ctx(tmp_path, Fuentes())))
+    assert "Nada se mueve HOY más de lo normal" in F.plano(S.resp_macro(ctx(tmp_path, Fuentes())))
 
 
 # =============================== cambios sugeridos ===============================
@@ -258,10 +265,90 @@ def test_el_resumen_de_la_manana_junta_macro_calendario_liquidez_y_cambios(tmp_p
     e = Estado(CFG, tmp_path / "s.json")
     e.registrar_compra("TSLA", 8, 329.0, AHORA, 8.4e6)
     e.registrar_compra("NUCO", 1200, 15.2, AHORA, 58e6)
-    t = F.plano(S.resumen_manana(ctx(tmp_path, Fuentes({"brasil": 0.05}), ahora=bog(2026, 10, 28, 8, 10)), BANCO))
+    t = F.plano(S.resumen_manana(ctx(tmp_path, Fuentes({"brasil": 0.05}, dia="2026-10-28"), ahora=bog(2026, 10, 28, 8, 10)), BANCO))
     for esperado in ("Antes de abrir (la bolsa abre a las 08:30)", "Qué pasó mientras dormías", "La bolsa de Brasil sube 5,0%", "Beneficiadas: NUCO (la tienes)",
                      "Hoy en el calendario", "Decisión de la FED", "Ojo con lo que se negocia poco", "Liquidez de TSLA en trii: MALA", "Cambios sugeridos", "TSLA → PFSURA",
                      "Órdenes límite, nunca a mercado", "Aún no sé cómo vas"):
         assert esperado in t, esperado
     e.actualizar_rank(1.0, 3.0, AHORA)
     assert "Aún no sé cómo vas" not in F.plano(S.resumen_manana(ctx(tmp_path, Fuentes(), ahora=bog(2026, 10, 7, 8, 10)), []))
+
+
+# =============================== ¿de cuándo es el movimiento? y lo de fuera de horario ===============================
+def test_lo_de_ayer_no_se_presenta_como_de_hoy_ni_vuelve_a_disparar_avisos(tmp_path, monkeypatch):
+    """Caso real (6-oct-2026, 6:30 a. m.): el bot decía "el Colcap sube 2,9 %" y "NUCO sube 13 % hoy" cuando eso había sido el día anterior."""
+    f = Fuentes({"colombia": 0.029, "petroleo": -0.06}, sin_sesion_hoy=["colombia"])
+    tab = {x["clave"]: x for x in M.tablero(f, CFG, AHORA)}
+    col = tab["colombia"]
+    assert col["cuando"] == "ayer" and col["fecha"] == IDX[-1].date() and not col["fuerte"] and not col["notable"] and abs(col["z"]) > 2
+    assert tab["petroleo"]["cuando"] == "hoy" and tab["petroleo"]["fuerte"]
+    t = F.plano(F.msg_macro_tablero(list(tab.values()), {}, AHORA))
+    assert "🕘 La bolsa de Colombia (Colcap) subió 2,9% en la última sesión (lun 05/10); hoy aún no abre" in t and "El petróleo (Brent) cae 6,0%" in t
+    enviados = []
+    monkeypatch.setattr(S, "enviar", lambda texto, cfg, botones=None, **k: enviados.append(texto) or True)
+    out = S.tick_macro(ctx(tmp_path, f), N.Memoria(tmp_path / "n.json"), [])
+    assert len(out) == 1 and "petróleo" in out[0] and "Colcap" not in out[0].split("¿A quién le pega?")[0]     # sólo se avisa lo que pasa HOY
+
+
+def test_lo_normal_se_mide_sin_contar_la_sesion_que_se_esta_juzgando():
+    f = Fuentes({"petroleo": -0.06})
+    x = next(x for x in M.tablero(f, CFG, AHORA) if x["clave"] == "petroleo")
+    assert x["sigma"] == pytest.approx(float(R_BRENT.tail(60).std(ddof=1)), rel=0.02) and x["z"] == pytest.approx(-0.06 / x["sigma"])
+
+
+class FuentesExt:
+    """Barras de 5 minutos con pre-mercado y horario normal en Nueva York."""
+    def __init__(self, barras):
+        self.barras = barras
+        self.yf = SimpleNamespace(Ticker=lambda s: SimpleNamespace(history=lambda **k: self._hist()))
+
+    def _con_cache(self, clave, ttl, fn, nombre):
+        return fn()
+
+    def _hist(self):
+        if not self.barras:
+            return pd.DataFrame()
+        idx = pd.DatetimeIndex([pd.Timestamp(t, tz="America/New_York") for t, _ in self.barras])
+        return pd.DataFrame({"Close": [v for _, v in self.barras]}, index=idx)
+
+
+def dia_normal(fecha, cierre):
+    return [(f"{fecha} {h:02d}:{m:02d}", cierre) for h in range(10, 16) for m in (0, 30)]
+
+
+def test_el_movimiento_antes_de_abrir_y_despues_de_cerrar_se_mide_contra_el_ultimo_cierre():
+    from src import sesion as SE
+    pre = FuentesExt(dia_normal("2026-10-05", 15.18) + [("2026-10-06 07:00", 16.0), ("2026-10-06 07:25", 16.70)])
+    x = SE.fuera_de_horario(pre, "NU", dt.datetime(2026, 10, 6, 11, 30, tzinfo=UTC))                 # 07:30 en Nueva York
+    assert x["estado"] == "pre" and x["cierre"] == 15.18 and x["cambio"] == pytest.approx(16.70 / 15.18 - 1) and x["hora"] == "06:25"     # hora de Bogotá
+    post = FuentesExt(dia_normal("2026-10-05", 15.18) + [("2026-10-05 17:30", 14.42)])
+    y = SE.fuera_de_horario(post, "NU", dt.datetime(2026, 10, 5, 22, 0, tzinfo=UTC))
+    assert y["estado"] == "post" and y["cambio"] == pytest.approx(14.42 / 15.18 - 1)
+    abierto = FuentesExt(dia_normal("2026-10-05", 15.18) + [("2026-10-06 08:00", 16.0), ("2026-10-06 10:00", 16.2)])
+    assert SE.fuera_de_horario(abierto, "NU", dt.datetime(2026, 10, 6, 14, 5, tzinfo=UTC)) is None      # mercado abierto: no hay "fuera de horario"
+    viejo = FuentesExt(dia_normal("2026-10-02", 15.18) + [("2026-10-02 17:30", 15.5)])
+    assert SE.fuera_de_horario(viejo, "NU", dt.datetime(2026, 10, 4, 15, 0, tzinfo=UTC)) is None        # domingo: lo del viernes ya no es noticia
+    assert SE.fuera_de_horario(FuentesExt([]), "NU") is None and F.linea_fuera(None) == ""
+    assert F.linea_fuera(x) == "antes de abrir hoy va +10,0% (06:25)"
+
+
+def test_el_semaforo_dice_de_que_dia_es_la_sesion_y_una_subida_fuerte_no_es_un_dia_normal():
+    from tests.test_fase4 import mk_res
+    from src.semaforo import VERDE
+    r = mk_res(VERDE, ticker="NUCO")
+    r.r_hoy, r.z, r.fecha = 0.132, 4.3, dt.date(2026, 10, 5)
+    t = F.plano(F.msg_semaforo(r, bog(2026, 10, 6, 6, 30)))
+    assert "En la última sesión (lun 05/10) NUCO subió 13,2%. Hoy todavía no ha abierto la bolsa." in t and "sube 13,2% hoy" not in t
+    assert "fue una subida fuerte" in t and "no es un día normal" in t and "dentro de lo habitual" not in t
+    mismo_dia = F.plano(F.msg_semaforo(r, bog(2026, 10, 5, 14, 0)))
+    assert "NUCO sube 13,2% hoy." in mismo_dia
+    r.fecha = None                                                                                   # resultados antiguos sin fecha: como antes
+    assert "NUCO sube 13,2% hoy." in F.plano(F.msg_semaforo(r, bog(2026, 10, 6, 6, 30)))
+
+
+def test_la_cartera_y_el_semaforo_muestran_el_movimiento_fuera_de_horario_de_tus_acciones_de_ee_uu(tmp_path, monkeypatch):
+    from src import sesion as SE
+    monkeypatch.setattr(SE, "fuera_de_horario", lambda f, sym, ahora=None: dict(estado="pre", precio=16.70, cierre=15.18, cambio=0.10, hora="06:25") if sym == "NU" else None)
+    c = ctx(tmp_path, Fuentes())
+    lineas = S.lineas_fuera_de_horario(c, ["NUCO", "META", "GRUPOARGOS"])
+    assert len(lineas) == 1 and "NUCO antes de abrir (pre-mercado): +10,0% frente al último cierre, a las 06:25" in F.plano(lineas[0])

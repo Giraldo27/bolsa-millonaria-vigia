@@ -398,6 +398,7 @@ def resp_semaforo(ctx: Contexto, ticker: str | None = None) -> str:
         except Exception as ex:                                                          # noqa: BLE001 — una acción sin datos no impide ver las demás
             partes.append(f"⚠️ {F.b(F.esc(t))}: no pude calcular su semáforo ahora ({F.esc(type(ex).__name__)}). Prueba /actualizar.")
     avisos = avisos_liquidez(ctx, [t for t in lista if t in universo_permitido(ctx.cfg)])
+    avisos = lineas_fuera_de_horario(ctx, lista) + avisos
     if any(t in ctx.cfg["universe"]["mgc"] for t in lista):
         avisos.append(F.it("El semáforo de las acciones de EE. UU. mira su precio en Nueva York (en dólares). En trii las ves en pesos y se negocian aparte: "
                            "su precio allá también cambia con el dólar y con lo poco que se negocian."))
@@ -629,13 +630,28 @@ def avisos_liquidez(ctx: Contexto, tickers: list[str], montos: dict[str, float] 
     return out
 
 
+def lineas_fuera_de_horario(ctx: Contexto, tickers: list[str]) -> list[str]:
+    """Para tus acciones de EE. UU.: cómo van ANTES de abrir o DESPUÉS de cerrar en Nueva York (frente al último cierre). Es lo que anticipa cómo abrirán."""
+    from . import sesion as SE
+    from .data_loader import yahoo_symbol
+    out = []
+    for t in tickers:
+        if t not in ctx.cfg["universe"]["mgc"]:
+            continue
+        fx = SE.fuera_de_horario(ctx.f, yahoo_symbol(t, ctx.cfg), ctx.ahora)
+        if fx:
+            momento = "antes de abrir (pre-mercado)" if fx["estado"] == "pre" else "después del cierre"
+            out.append(f"🌙 {F.b(t)} {momento}: {F.b(F.pct(fx['cambio'], 1, True))} frente al último cierre, a las {fx['hora']} (Nueva York, US$ {F.n(fx['precio'], 2)}).")
+    return out
+
+
 def _cartera_txt(ctx: Contexto, est: Estado, titulo: bool = True) -> str:
     from . import cartera as CA
     tasa = CA.trm(ctx.f, ctx.cfg)
     filas = CA.valorar(ctx.f, est.d["cartera"], ctx.cfg, tasa)
     colores = {t: est.color_previo(t) for t in est.tenidos()}
     montos = {x["ticker"]: x["valor_cop"] for x in filas if x["valor_cop"] == x["valor_cop"]}
-    avisos = avisos_liquidez(ctx, [x["ticker"] for x in filas], montos)
+    avisos = lineas_fuera_de_horario(ctx, [x["ticker"] for x in filas]) + avisos_liquidez(ctx, [x["ticker"] for x in filas], montos)
     return F.msg_cartera(filas, CA.rent_total(filas), tasa, colores, titulo) + ("\n" + "\n".join(avisos) if avisos else "")
 
 
@@ -912,7 +928,7 @@ def panorama_macro(ctx: Contexto) -> tuple[list[dict[str, Any]], dict[str, dict[
     """(tablero de factores ahora, {factor: quién se beneficia y quién se afecta hoy}) para los factores que se movieron."""
     from . import macro as M
     est = leer_estado(ctx)
-    tab = M.tablero(ctx.f, ctx.cfg)
+    tab = M.tablero(ctx.f, ctx.cfg, ctx.ahora)
     if not any(x["notable"] for x in tab):
         return tab, {}
     sens = M.sensibilidades(ctx.f, ctx.cfg, _tickers_macro(ctx, est))
@@ -930,7 +946,7 @@ def tick_macro(ctx: Contexto, mem: Any, items: list[Any] | None = None) -> list[
     from . import macro as M
     if not ctx.cfg["macro_vivo"].get("activo"):
         return []
-    tab = M.tablero(ctx.f, ctx.cfg)
+    tab = M.tablero(ctx.f, ctx.cfg, ctx.ahora)
     fuertes = M.movimientos_nuevos(tab, mem.d, ctx.ahora)
     temas = M.titulares_macro(items or [], mem.d, ctx.ahora, ctx.cfg)
     mem.sucia = True
