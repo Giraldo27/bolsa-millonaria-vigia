@@ -28,7 +28,12 @@ def _una(f: FuentesDatos, t: str, base: str, fin: dt.date, hoy: dt.date, cfg: di
             return None
         r = d["Close"].pct_change().dropna().tail(s["vol_realizada_dias"])
         real = float(r.std(ddof=1)) * math.sqrt(252)
-        liq = float((d["Close"] * d["Volume"]).tail(20).mean() / 1e6)
+        from . import liquidez as LQ
+        if group_of(t, cfg) == "local":
+            lq = LQ.clasificar(d["Close"] * d["Volume"], d["Volume"], cfg)
+        else:                                                                           # EE. UU.: la liquidez que cuenta es la de trii, no la de Nueva York
+            lq = LQ.medir(f, t, cfg)
+        liq, liquida = float(lq.get("mediana_mm") or 0.0), lq["nivel"] == LQ.BUENA
     except Exception:                                                                    # noqa: BLE001 — una acción sin datos se omite, no se inventa
         return None
     grupo = group_of(t, cfg)
@@ -43,7 +48,7 @@ def _una(f: FuentesDatos, t: str, base: str, fin: dt.date, hoy: dt.date, cfg: di
     anual = s["peso_iv"] * iv + (1 - s["peso_iv"]) * real if iv else real
     dias = max((fin - hoy).days, 1)
     return dict(ticker=t, grupo=grupo, anual=anual, iv=iv, real=real, vencimiento=venc, mee=anual * math.sqrt(dias / 365), liquidez_mm=liq,
-                liquida=liquidez_ok(Candidato(t, grupo, anual, valor_negociado_mm=liq), cfg) and (liq >= s["valor_negociado_min_usd_mm"] if grupo != "local" else True),
+                liquida=liquida,
                 es_base=t == base)
 
 

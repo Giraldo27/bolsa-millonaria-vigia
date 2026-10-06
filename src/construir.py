@@ -113,6 +113,10 @@ def construir_candidato(f: FuentesDatos, ticker: str, ahora: dt.datetime, cfg: d
         lq = clasificar(ent.cierres * ent.volumenes, ent.volumenes, cfg)
         from .liquidez import BUENA
         liquidez = (lq["mediana_mm"] or 0.0) if lq["nivel"] == BUENA else 0.0             # sólo "buena" entra a las recomendaciones; justa, mala o sin dato quedan fuera
+    else:                                                                              # acción de EE. UU.: NO vale su liquidez en Nueva York, vale la de trii (libro de Colombia)
+        from .liquidez import BUENA, medir
+        lq = medir(f, ticker, cfg)
+        liquidez = (lq["mediana_mm"] or 0.0) if lq["nivel"] == BUENA else 0.0             # (queda en millones de PESOS negociados en trii; sin dato o poca liquidez = 0)
     return Candidato(
         ticker=ticker, grupo=grupo, mee=mee, metodo=metodo, color=res.color,
         corr=_corr(ent.cierres, actual_cierres, cfg["banco"]["corr_dias"]) if actual_cierres is not None else None,

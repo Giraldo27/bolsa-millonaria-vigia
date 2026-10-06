@@ -398,6 +398,9 @@ def resp_semaforo(ctx: Contexto, ticker: str | None = None) -> str:
         except Exception as ex:                                                          # noqa: BLE001 — una acción sin datos no impide ver las demás
             partes.append(f"⚠️ {F.b(F.esc(t))}: no pude calcular su semáforo ahora ({F.esc(type(ex).__name__)}). Prueba /actualizar.")
     avisos = avisos_liquidez(ctx, [t for t in lista if t in universo_permitido(ctx.cfg)])
+    if any(t in ctx.cfg["universe"]["mgc"] for t in lista):
+        avisos.append(F.it("El semáforo de las acciones de EE. UU. mira su precio en Nueva York (en dólares). En trii las ves en pesos y se negocian aparte: "
+                           "su precio allá también cambia con el dólar y con lo poco que se negocian."))
     return "\n\n➖➖➖\n\n".join(partes) + ("\n\n" + "\n".join(avisos) if avisos else "")
 
 

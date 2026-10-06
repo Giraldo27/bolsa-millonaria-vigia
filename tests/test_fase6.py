@@ -164,8 +164,19 @@ def serie(sigma, n=120, vol=1e7, precio=100.0):
 
 
 class FuentesFalsas:
-    def __init__(self, sig, iv=None, vol_baja=()):
-        self.sig, self.iv, self.vol_baja = sig, iv or {}, set(vol_baja)
+    def __init__(self, sig, iv=None, vol_baja=(), sin_trii=()):
+        self.sig, self.iv, self.vol_baja, self.sin_trii = sig, iv or {}, set(vol_baja), set(sin_trii)
+        self.yf = SimpleNamespace(download=self._libro_trii)
+
+    def _con_cache(self, clave, ttl, fn, nombre):
+        return fn()
+
+    def _libro_trii(self, sym, **k):
+        """El libro de Colombia de una acción de EE. UU. (TSLACO.CL…): por defecto se negocia bien, salvo las de `sin_trii` (líquidas en Nueva York, no en trii)."""
+        t = sym.replace("CO.CL", "").replace(".CL", "")
+        if t in self.sin_trii or (t + "CO") in self.sin_trii:
+            return pd.DataFrame({"Close": 1000.0, "Volume": 40.0}, index=pd.bdate_range(end="2026-10-02", periods=63))
+        return pd.DataFrame({"Close": 1000.0, "Volume": 1e7}, index=pd.bdate_range(end="2026-10-02", periods=63))
 
     def diario(self, t, dias=None):
         return serie(self.sig.get(t, 0.01), vol=10 if t in self.vol_baja else 1e8)
@@ -192,9 +203,18 @@ def test_se_pide_revisar_la_base_si_otra_la_supera_y_puede_ser_de_la_bvc():
 
 
 def test_una_accion_poco_liquida_no_cuenta_aunque_se_mueva_mucho():
-    f = FuentesFalsas({"TSLA": 0.03, "NUCO": 0.09}, vol_baja=["NUCO"])
+    f = FuentesFalsas({"TSLA": 0.03, "NUCO": 0.09}, sin_trii=["NUCO"])
     filas = Q.ranking_base(f, CFG, AHORA, "TSLA")
     assert "NUCO" not in [x["ticker"] for x in filas] and Q.veredicto(filas, CFG)[0] == "mantener"
+
+
+def test_la_liquidez_que_cuenta_es_la_de_trii_no_la_de_nueva_york():
+    """Regla del usuario (6-oct-2026): una acción puede mover miles de millones en Nueva York y casi nada en trii; sólo vale la de trii."""
+    f = FuentesFalsas({"TSLA": 0.03, "NVDA": 0.09, "GRUPOARGOS": 0.03}, sin_trii=["NVDA"])       # NVDA: enorme en Nueva York (vol 1e8), 40 acciones al día en trii
+    filas = Q.ranking_base(f, CFG, AHORA, "TSLA")
+    assert "NVDA" not in [x["ticker"] for x in filas] and "GRUPOARGOS" in [x["ticker"] for x in filas]
+    poca = FuentesFalsas({"TSLA": 0.03, "GRUPOARGOS": 0.09}, vol_baja=["GRUPOARGOS"])             # una local que casi no se negocia tampoco entra
+    assert "GRUPOARGOS" not in [x["ticker"] for x in Q.ranking_base(poca, CFG, AHORA, "TSLA")]
 
 
 def test_con_opciones_se_mezcla_50_50_con_la_volatilidad_de_60_dias():

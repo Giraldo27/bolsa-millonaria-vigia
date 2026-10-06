@@ -485,6 +485,9 @@ def msg_cartera(filas: list[dict[str, Any]], rent: float | None, tasa: float | N
         L.append(f"• {b(x['ticker'])}{col}: {cant} · compra {mon}{px(x['precio_compra'])} · {hoy}{peso}")
     if rent is not None:
         L.append(f"Rentabilidad del conjunto (aprox.): {b(pct(rent, 1, True))}" + (f" · TRM usada $ {n(tasa, 0)}" if tasa else ""))
+    if any(x["moneda"] == "USD" for x in filas):
+        L.append(it("Las acciones de EE. UU. van con su precio de Nueva York pasado a pesos. En trii se negocian aparte y muy poco: el precio al que de verdad "
+                    "puedas vender allá puede ser distinto (más bajo si hay pocos compradores)."))
     L.append(it("Es aproximada: la TRM de trii puede ser distinta. Tu ranking oficial lo da trii: usa /rank."))
     return "\n".join(L)
 
