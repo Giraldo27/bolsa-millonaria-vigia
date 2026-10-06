@@ -42,6 +42,7 @@ class Candidato:
     sentimiento: float | None = None
     valor_negociado_mm: float | None = None  # millones de USD (mgc/etf) o de COP (local) por día
     sin_noticias: bool = False
+    r5: float | None = None                 # cuánto subió o bajó en las últimas 5 sesiones (en la BVC, lo que más sube suele devolver)
 
 
 @dataclass

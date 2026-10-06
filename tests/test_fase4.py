@@ -210,11 +210,24 @@ def test_msg_banco_explica_en_palabras_cuanto_se_mueve_y_que_tan_parecido_es():
           Candidato("AMZN", "mgc", 0.085, "IV", corr=0.75, valor_negociado_mm=9999, sin_noticias=True)]
     t = F.msg_banco(construir_banco(cs, "TSLA", CFG), "TSLA", 0.065, {"NVDA"})
     p = F.plano(t)
-    for esperado in ("Mejores relevos para TSLA", "se espera ±9,0% hasta el corte (1,4× tu acción)", "se mueve distinto a TSLA ✅", "se mueve casi igual que TSLA",
-                     "reporta resultados el 28/10, antes del corte", "sin datos de noticias", "Excluidos esta semana: NVDA"):
+    for esperado in ("Relevos posibles para TSLA", "META se mueve 1,4 veces lo que ya tienes", "se espera ±9,0% hasta el corte (1,4 veces lo tuyo)", "se mueve distinto a TSLA ✅",
+                     "se mueve casi igual que TSLA", "reporta resultados el 28/10, antes del corte", "sin datos de noticias", "Excluidos esta semana: NVDA"):
         assert esperado in p, esperado
     sin_jerga(t)
     assert "no hay ninguno que cumpla" in F.plano(F.msg_banco([], "TSLA", 0.06))
+
+
+def test_msg_banco_dice_primero_si_vale_la_pena_y_ordena_de_mas_a_menos_movimiento():
+    """Caso real (5-oct-2026): la lista mostraba 'mejores relevos' que se movían MENOS que la cartera, sin decirlo, y desordenados."""
+    cs = [Candidato("ECOPETROL", "local", 0.032, "σ20", corr=0.05, valor_negociado_mm=42000, r5=0.004), Candidato("PFSURA", "local", 0.042, "σ20", corr=0.2, valor_negociado_mm=8300, r5=-0.019),
+          Candidato("ISA", "local", 0.035, "σ20", corr=0.1, valor_negociado_mm=8400, r5=0.031)]
+    p = F.plano(F.msg_banco(construir_banco(cs, "NUCO", CFG), "NUCO", 0.053))
+    assert "Ninguna se mueve más que lo que ya tienes (la que más, PFSURA: 0,8 veces lo tuyo)" in p and "Cambiar no te ayuda a remontar" in p and "se negocia poco en trii" in p
+    assert p.index("1. 🟢 PFSURA") < p.index("2. 🟢 ISA") < p.index("3. 🟢 ECOPETROL")                    # de la que más se mueve a la que menos
+    assert "esta semana -1,9%" in p and "esta semana +3,1%" in p and "mejor la que viene quieta" in p
+    casi = F.plano(F.msg_banco(construir_banco(cs, "NUCO", CFG), "NUCO", 0.040))
+    assert "Ninguna se mueve claramente más" in casi and "no paga su costo" in casi
+    assert F.conclusion_banco([], 0.05) is None and F.conclusion_banco(construir_banco(cs, "NUCO", CFG), None) is None
 
 
 def test_msg_noticias_traduce_marca_el_tono_y_dice_cuando_no_hay():
@@ -488,7 +501,7 @@ def test_radar_arma_las_cinco_secciones_en_palabras_sencillas(tmp_path):
     t = S.armar_radar(e, r, [{"fecha": dt.date(2026, 10, 28), "hora": "13:00", "detalle": "Decisión de la FED", "tipo": "macro", "verificada": True}], CFG, ahora)
     p = F.plano(t)
     for esperado in ("RADAR DE LA NOCHE", "Semana 4 de 5", "pasa el top 10%", "Hoy es noche de decisión", "1️⃣ Tu acción", "AMARILLO (vigilar)", "2️⃣ ¿Te conviene cambiar?",
-                     "vas +6,0% y el objetivo del corte es +11,0%", "Recomendación: cambia a META", "3️⃣ Mejores relevos", "se espera ±9,0%", "4️⃣ Qué viene",
+                     "vas +6,0% y el objetivo del corte es +11,0%", "Recomendación: cambia a META", "3️⃣ Relevos posibles", "se espera ±9,0%", "4️⃣ Qué viene",
                      "FED", "5️⃣ Tus tareas de mañana", "toca micro-compra", "Cambios de acción usados: 0 de 4", "/ayuda"):
         assert esperado in p, esperado
     posiciones = [p.index(s) for s in ("1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣")]

@@ -117,7 +117,8 @@ def construir_candidato(f: FuentesDatos, ticker: str, ahora: dt.datetime, cfg: d
         ticker=ticker, grupo=grupo, mee=mee, metodo=metodo, color=res.color,
         corr=_corr(ent.cierres, actual_cierres, cfg["banco"]["corr_dias"]) if actual_cierres is not None else None,
         reporte_antes_corte=reporte_antes_del_corte(f.reportes(ticker), ahora.date(), corte["fecha"]),
-        vol_rel=res.vol_rel, z=res.z, sentimiento=res.sentimiento, valor_negociado_mm=liquidez, sin_noticias=res.sin_noticias)
+        vol_rel=res.vol_rel, z=res.z, sentimiento=res.sentimiento, valor_negociado_mm=liquidez, sin_noticias=res.sin_noticias,
+        r5=float(ent.precio / ent.cierres.iloc[-5] - 1) if len(ent.cierres) >= 5 and ent.cierres.iloc[-5] > 0 else None)
 
 
 def candidatos_banco(f: FuentesDatos, cfg: dict[str, Any], ahora: dt.datetime, actual: str, actual_cierres: pd.Series | None,

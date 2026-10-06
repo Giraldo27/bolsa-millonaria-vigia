@@ -259,19 +259,43 @@ def _parecido(corr: float | None, actual: str) -> str:
     if corr is None:
         return ""
     if corr < 0.3:
-        return f"se mueve distinto a {actual} ✅ (diversifica)"
+        return f"se mueve distinto a {actual} ✅"
     if corr < 0.6:
         return f"algo parecida a {actual}"
     return f"se mueve casi igual que {actual}"
 
 
+def conclusion_banco(banco: list[EntradaBanco], mee: float | None, costo: float = 0.013) -> str | None:
+    """Lo primero que hay que saber antes de mirar la lista: ¿alguna se mueve más que lo que ya tienes? Si no, cambiar no ayuda a remontar."""
+    if not mee or not banco:
+        return None
+    mejor = max(banco, key=lambda e: e.c.mee).c
+    r = mejor.mee / mee
+    if r < 0.95:
+        return (f"➡️ {b('Ninguna se mueve más que lo que ya tienes')} (la que más, {esc(mejor.ticker)}: {n(r, 1)} veces lo tuyo). Cambiar {b('no')} te ayuda a remontar y cuesta "
+                f"cerca de {pct(costo, 1)}. Solo tendría sentido para bajar riesgo o para salir de algo que se negocia poco en trii.")
+    if r < 1.15:
+        return (f"➡️ {b('Ninguna se mueve claramente más que lo que ya tienes')} ({esc(mejor.ticker)}: {n(r, 1)} veces lo tuyo). Con una diferencia tan pequeña, "
+                f"el cambio no paga su costo (cerca de {pct(costo, 1)}).")
+    return (f"➡️ {b(mejor.ticker + ' se mueve ' + n(r, 1) + ' veces lo que ya tienes')}: esa es la única razón para cambiar. Si alcanza o no depende de cuánto te falte "
+            "en el ranking (mira la recomendación de abajo).")
+
+
 def msg_banco(banco: list[EntradaBanco], actual: str, mee: float | None, excluidos: set[str] | None = None, top: int = 7, titulo: bool = True) -> str:
+    """Relevos posibles: primero la conclusión (¿vale la pena cambiar?), luego las opciones de la que MÁS se mueve a la que menos, con lo que hizo cada una
+    esta semana. "Más movimiento" es lo que sirve para remontar en el ranking; no dice hacia dónde."""
     if not banco:
-        return f"📋 {b('Mejores relevos')}: hoy no hay ninguno que cumpla (poco líquidos, en alerta o sin datos)."
-    L = [f"📋 {b('Mejores relevos para ' + actual)}" + (f" {it('(de mayor a menor movimiento esperado)')}" if titulo else "")]
-    for i, e in enumerate(banco[:top], 1):
+        return f"📋 {b('Relevos posibles')}: hoy no hay ninguno que cumpla (poco líquidos en trii, en alerta o sin datos)."
+    L = [f"📋 {b('Relevos posibles para ' + actual)}" + (f" {it('(cuánto puede moverse cada uno hasta el próximo corte)')}" if titulo else "")]
+    c0 = conclusion_banco(banco, mee)
+    if c0:
+        L += [c0, ""]
+    orden = sorted(banco[:top], key=lambda e: -e.c.mee)
+    for i, e in enumerate(orden, 1):
         c = e.c
-        partes = [f"se espera ±{n(c.mee * 100, 1)}% hasta el corte" + (f" ({n(c.mee / mee, 1)}× tu acción)" if mee else "")]
+        partes = [f"se espera ±{n(c.mee * 100, 1)}% hasta el corte" + (f" ({n(c.mee / mee, 1)} veces lo tuyo)" if mee else "")]
+        if c.r5 is not None:
+            partes.append(f"esta semana {pct(c.r5, 1, True)}")
         p = _parecido(c.corr, actual)
         if p:
             partes.append(p)
@@ -280,6 +304,8 @@ def msg_banco(banco: list[EntradaBanco], actual: str, mee: float | None, excluid
         if c.sin_noticias:
             partes.append("sin datos de noticias")
         L.append(f"{i}. {EMOJI[c.color]} {b(c.ticker)}: " + "; ".join(partes) + ".")
+    if any(e.c.r5 is not None for e in orden):
+        L.append(it("Entre dos parecidas, mejor la que viene quieta que la que más subió esta semana: en la BVC las que más suben suelen devolver parte."))
     if excluidos:
         L.append(it(f"Excluidos esta semana: {', '.join(sorted(excluidos))} (probablemente los tienen los líderes)."))
     return "\n".join(L)

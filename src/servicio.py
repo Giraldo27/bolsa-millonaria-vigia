@@ -289,7 +289,7 @@ def armar_radar(est: Estado, r: ResultadoMotor, cats: list[dict[str, Any]], cfg:
     L += ["", F.b("1️⃣ Tu acción") + f" — {EMOJI[r.res.color]} {F.esc(r.res.ticker)}: {F.NOMBRE_COLOR[r.res.color]}", *F.cuerpo_semaforo(r.res, traductor)]
     L += ["", F.b("2️⃣ ¿Te conviene cambiar?"), *([] if r.decision.codigo == "sin_ranking" else [F.linea_ranking(est.rent)]),
           *F.bloque_decision(r.decision, r.activo, hora)[1:]]
-    L += ["", F.b("3️⃣ Mejores relevos"), F.msg_banco(r.banco, r.activo, r.mee, r.excluidos, top=5, titulo=False).split("\n", 1)[-1]
+    L += ["", F.b("3️⃣ Relevos posibles"), F.msg_banco(r.banco, r.activo, r.mee, r.excluidos, top=5, titulo=False).split("\n", 1)[-1]
           if r.banco else F.msg_banco(r.banco, r.activo, r.mee)]
     destacados = {r.activo} | {e.c.ticker for e in r.banco[:5]}
     L += ["", F.b("4️⃣ Qué viene"), F.msg_catalizadores(cats, cfg["radar"]["dias_catalizadores"], max_items=6, destacados=destacados).split("\n", 1)[-1]
