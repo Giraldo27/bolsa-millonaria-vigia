@@ -92,9 +92,12 @@ def test_ranking_en_palabras():
 
 
 def test_preguntas_y_planes_no_registran_nada():
-    for texto in ("¿qué compro?", "que acción me recomiendas", "voy a comprar 300 argos", "me conviene vender tesla", "¿compré bien?", "si vendo meta que pasa", "en que invierto"):
+    for texto in ("¿qué compro?", "que acción me recomiendas", "me conviene vender tesla", "¿compré bien?", "si vendo meta que pasa", "en que invierto"):
         i = entender(texto, CFG, tenidos={"TSLA", "META"})
         assert i.tipo == "consulta" and i.consulta == "comprar", texto
+    for texto, tk in (("voy a comprar 300 argos", "GRUPOARGOS"), ("¿puedo comprar tesla?", "TSLA"), ("quiero comprar nuco", "NUCO")):
+        i = entender(texto, CFG)                                                                     # antes de comprar: el filtro de liquidez de ESA acción
+        assert (i.tipo, i.consulta, i.ticker) == ("consulta", "liquidez", tk), texto
     assert entender("me equivoqué", CFG).tipo == "deshacer" and entender("deshacer", CFG).tipo == "deshacer"
     assert entender("semáforo", CFG).consulta == "semaforo" and entender("mi cartera", CFG).consulta == "cartera" and entender("cómo voy", CFG).consulta == "estado"
     n = entender("noticias de ecopetrol", CFG)

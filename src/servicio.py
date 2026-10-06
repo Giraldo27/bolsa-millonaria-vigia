@@ -622,7 +622,7 @@ def avisos_liquidez(ctx: Contexto, tickers: list[str], montos: dict[str, float] 
     for t in tickers:
         l = LQ.medir(ctx.f, t, ctx.cfg)
         if todos or l["nivel"] in (LQ.JUSTA, LQ.MALA):
-            out.append(F.esc(LQ.frase(l, (montos or {}).get(t))))
+            out.append(F.esc(LQ.frase(l, (montos or {}).get(t), ctx.cfg)))
     return out
 
 
@@ -793,6 +793,30 @@ def registrar_tenencias(ctx: Contexto, partes: list[Any]) -> str:
         L.append(F.it("No toqué: " + ", ".join(otras) + ". Si ya no tienes alguna, escribe por ejemplo: vendí " + otras[0].lower()))
     L.append(F.it("¿Quedó mal? Escribe: me equivoqué"))
     return "\n".join(L) + "\n\n" + _cartera_txt(ctx, est)
+
+
+def resp_liquidez(ctx: Contexto, args: list[str]) -> str:
+    """/liquidez [ACCIÓN]: el filtro ANTES de comprar. Con una acción dice si es apta y por qué; sin argumento, revisa todo lo que tienes."""
+    from . import liquidez as LQ
+    est = leer_estado(ctx)
+    if args:
+        tickers = [resolver(ctx, " ".join(args), est.tenidos())]
+        if tickers[0] not in universo_permitido(ctx.cfg):
+            return f"❌ {F.esc(tickers[0])} no está permitida en el concurso (o está en la lista negra), o no reconocí el nombre."
+    else:
+        tickers = sorted(est.tenidos())
+        if not tickers:
+            return f"{F.b('Cómo usar /liquidez')}\nEscribe la acción que estás pensando comprar: {F.b('/liquidez ecopetrol')}. Te digo si pasa el filtro antes de que metas la plata."
+    L = [f"💧 {F.b('Filtro de liquidez en trii')} " + F.it("(lo que de verdad se negocia en la Bolsa de Colombia)")]
+    for t in tickers:
+        l = LQ.medir(ctx.f, t, ctx.cfg)
+        apta, corto = LQ.veredicto(l, t in ctx.cfg["universe"]["local"])
+        L += ["", F.b(t) + " — " + F.esc(corto), F.esc(LQ.frase(l, None, ctx.cfg))]
+    c = ctx.cfg["liquidez"]
+    mil = lambda v: f"{v:,}".replace(",", ".")                                          # noqa: E731
+    L += ["", F.it(f"Para aprobar una acción pido: día normal de al menos $ {mil(c['buena_cop_mm'])} millones, estable en 3 meses (al menos {mil(c['buena_60_cop_mm'])}), "
+                   f"días flojos de al menos {mil(c['buena_dia_flojo_cop_mm'])}, ningún día sin negociar y que sea de la BVC.")]
+    return "\n".join(L)
 
 
 def resp_deshacer(ctx: Contexto) -> str:

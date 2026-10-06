@@ -258,7 +258,7 @@ banco:
   tolerancia_mee: 0.10                      # candidatos con MEE a menos de 10 % del mejor se consideran empatados
   vol_rel_desempate: 1.5
   liquidez_min_usd_mm: 150                  # valor negociado diario mínimo de acciones MGC/ETF (millones de USD)
-  liquidez_min_cop_mm_locales: 2000         # acciones locales (millones de COP por día)
+  liquidez_min_cop_mm_locales: 3000         # acciones locales (millones de COP por día); además deben pasar el filtro completo de `liquidez`
 regla_maestra:
   margen_g_pp: 1.0                          # g = objetivo − mi rentabilidad + 1
   costo_cambio_pp: 1.3
@@ -438,9 +438,13 @@ cambios:                                    # avisos automáticos "cambia esta a
 
 liquidez:                                   # liquidez REAL en trii = lo que se negocia en la Bolsa de Colombia (src/liquidez.py), no en Nueva York
   dias: 20                                  # sesiones que se miran (se usa la MEDIANA del valor negociado: un día de bloque grande no engaña)
-  buena_cop_mm: 2000                        # "buena": al menos $2.000 millones al día → una orden de $100 M es ≤ 5 % del día
-  justa_cop_mm: 500                         # "justa": entre 500 y 2.000 → sólo con orden límite; por debajo es "mala"
-  max_dias_sin_negociar: 1                  # más días sin negociación que esto, en la ventana, la saca de "buena" y de "justa"
+  # Filtro endurecido el 6-oct-2026 (el usuario terminó con acciones poco líquidas que el sistema había aprobado). "Buena" exige las CUATRO cosas:
+  buena_cop_mm: 3000                        # 1) mediana de 20 sesiones ≥ $3.000 millones al día (antes 2.000) → una orden de $60 M es ≤ 2 % del día
+  buena_60_cop_mm: 2000                     # 2) mediana de 60 sesiones ≥ $2.000 millones: liquidez estable, no de las últimas semanas
+  buena_dia_flojo_cop_mm: 1500              # 3) incluso en sus días flojos (percentil 25 de 20 sesiones) negocia ≥ $1.500 millones
+  max_dias_sin_negociar: 0                  # 4) ningún día sin negociación en la ventana (antes se toleraba 1)
+  justa_cop_mm: 500                         # "justa": mediana ≥ 500 y sin días sin negociar → sólo con orden límite; por debajo es "mala"
+  orden_max_pct: 0.02                       # una posición tuya de más del 2 % de lo que se negocia en un día se marca como "grande para esta acción"
 
 modo:
   solo_bvc: true                            # el bot sólo RECOMIENDA acciones de la BVC (relevos, base, noticias, "qué comprar"). Lo que ya tengas de EE. UU. se sigue vigilando.
@@ -489,7 +493,7 @@ noticias_bvc:
           fusion: 0.55, capital: 0.55, guia: 0.55, calificacion: 0.47, analistas: 0.47, dividendo: 0.45,
           otra: 0.30}                       # "otra" = noticia de la empresa que no es de ninguno de los tipos anteriores
   recomendacion:
-    liquidez_min_cop_mm: 2000               # valor negociado diario mínimo (millones de COP): por debajo cuesta mucho entrar y salir
+    liquidez_min_cop_mm: 3000               # valor negociado diario mínimo (millones de COP); además debe pasar el filtro completo de `liquidez`
     costo_ida_vuelta: 0.013                 # comprar + vender ≈ 1,3 % (2 comisiones de 0,2975 % + diferencia de precios). COMPRAR sólo si la evidencia lo supera
     stop_sigmas: 1.5                        # "sal antes si cae X %": 1,5 veces su variación diaria típica…
     stop_min: 0.03                          # …pero nunca menos de 3 %

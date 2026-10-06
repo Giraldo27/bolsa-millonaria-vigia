@@ -156,6 +156,7 @@ def construir_app(token: str, chat_id: int, cfg: dict | None = None) -> Applicat
     comando("comprar", lambda c, a: S.resp_comprar(c), "⏳ Comparando las acciones de la BVC (cerca de 1 minuto)…", pesado=True)
     comando("noticias", lambda c, a: S.resp_noticias(c, " ".join(a) if a else None))
     comando("macro", lambda c, a: S.resp_macro(c), "⏳ Mirando el petróleo, el dólar, Wall Street y Brasil…")
+    comando("liquidez", lambda c, a: S.resp_liquidez(c, a), "💧 Revisando cuánto se negocia en trii…")
     comando("nuevas", lambda c, a: S.resp_nuevas(c), "🔄 Consultando la Superfinanciera y la prensa ahora mismo…")
     comando("actualizarnoticias", lambda c, a: S.resp_nuevas(c), "🔄 Consultando la Superfinanciera y la prensa ahora mismo…")
     comando("catalizadores", lambda c, a: S.resp_catalizadores(c), "⏳ Buscando fechas importantes…")

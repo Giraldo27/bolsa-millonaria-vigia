@@ -377,7 +377,7 @@ def test_respaldo_banco_se_relaja_si_las_noticias_estan_caidas():
 
 
 def test_liquidez_distinta_para_locales():
-    cs = [cand("ISA", 0.05, grupo="local", liq=2500), cand("EXITO", 0.06, grupo="local", liq=1500)]
+    cs = [cand("ISA", 0.05, grupo="local", liq=3500), cand("EXITO", 0.06, grupo="local", liq=2500)]      # el mínimo local subió a $3.000 millones (6-oct-2026)
     assert tickers(construir_banco(cs, "TSLA", CFG)) == ["ISA"]
 
 

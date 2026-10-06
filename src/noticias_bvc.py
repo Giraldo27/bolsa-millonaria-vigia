@@ -442,7 +442,8 @@ def pulso(f: Any, ticker: str, cfg: dict[str, Any], ahora: dt.datetime | None = 
         sigma = float(hist["Close"].pct_change().tail(20).std(ddof=1))
         from .liquidez import clasificar
         lq = clasificar(hist["Close"] * hist["Volume"], hist["Volume"], cfg)             # liquidez real en trii: mediana y días sin negociar
-        liq = (lq["mediana_mm"] or 0.0) if (lq["dias_sin_negociar"] or 0) <= cfg["liquidez"]["max_dias_sin_negociar"] else 0.0
+        from .liquidez import BUENA
+        liq = (lq["mediana_mm"] or 0.0) if lq["nivel"] == BUENA else 0.0                      # justa, mala o sin dato cuentan como sin liquidez
         r = q["precio"] / q["cierre_previo"] - 1
         return dict(ticker=ticker, precio=float(q["precio"]), r_hoy=float(r), sigma=sigma, z=(r / sigma if sigma > 0 else None), liquidez_mm=liq)
     except Exception:                                                                  # noqa: BLE001 — sin precio no hay recomendación, pero no se cae

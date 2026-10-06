@@ -111,8 +111,8 @@ def construir_candidato(f: FuentesDatos, ticker: str, ahora: dt.datetime, cfg: d
     if grupo == "local":                                                               # en la BVC manda la liquidez real de trii: mediana y días sin negociar
         from .liquidez import clasificar
         lq = clasificar(ent.cierres * ent.volumenes, ent.volumenes, cfg)
-        if lq["mediana_mm"] is not None:
-            liquidez = lq["mediana_mm"] if lq["dias_sin_negociar"] <= cfg["liquidez"]["max_dias_sin_negociar"] else 0.0
+        from .liquidez import BUENA
+        liquidez = (lq["mediana_mm"] or 0.0) if lq["nivel"] == BUENA else 0.0             # sólo "buena" entra a las recomendaciones; justa, mala o sin dato quedan fuera
     return Candidato(
         ticker=ticker, grupo=grupo, mee=mee, metodo=metodo, color=res.color,
         corr=_corr(ent.cierres, actual_cierres, cfg["banco"]["corr_dias"]) if actual_cierres is not None else None,

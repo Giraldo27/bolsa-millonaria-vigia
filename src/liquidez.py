@@ -37,15 +37,30 @@ def clasificar(valor_diario: pd.Series, volumen: pd.Series, cfg: dict[str, Any])
     c = cfg["liquidez"]
     v, vol = valor_diario.tail(c["dias"]), volumen.tail(c["dias"])
     if len(v) < c["dias"] // 2:
-        return dict(nivel=SIN_DATO, mediana_mm=None, hoy_mm=None, acciones_hoy=None, dias_sin_negociar=None, dias=len(v))
+        return dict(nivel=SIN_DATO, mediana_mm=None, hoy_mm=None, acciones_hoy=None, dias_sin_negociar=None, dias=len(v), motivos=["muy pocos días de historia"])
     sin = int((vol <= 0).sum())
     mediana, hoy = float(v.median()) / 1e6, float(v.iloc[-1]) / 1e6
-    base = dict(mediana_mm=mediana, hoy_mm=hoy, acciones_hoy=float(vol.iloc[-1]), dias_sin_negociar=sin, dias=len(v))
+    v60 = valor_diario.tail(60)
+    mediana60 = float(v60.median()) / 1e6 if len(v60) >= 40 else None
+    flojo = float(v.quantile(0.25)) / 1e6
+    base = dict(mediana_mm=mediana, mediana60_mm=mediana60, dia_flojo_mm=flojo, hoy_mm=hoy, acciones_hoy=float(vol.iloc[-1]), dias_sin_negociar=sin, dias=len(v))
     if sin > len(v) // 2:
-        return dict(base, nivel=SIN_DATO if hoy >= c["buena_cop_mm"] else MALA)                 # historial incompleto pero hoy se negoció mucho: no se sabe
-    if mediana >= c["buena_cop_mm"] and sin <= c["max_dias_sin_negociar"]:
-        return dict(base, nivel=BUENA)
-    return dict(base, nivel=JUSTA if (mediana >= c["justa_cop_mm"] and sin <= c["max_dias_sin_negociar"]) else MALA)
+        # Más de la mitad de los días "sin volumen": o no se negocia, o Yahoo no trae el volumen de esta acción (le pasa con NUCO, que es de las más negociadas).
+        # Con estos datos no se puede saber cuál de las dos: se dice "sin dato" (y sin dato NUNCA se recomienda), no "mala".
+        return dict(base, nivel=SIN_DATO, mediana_mm=None, motivos=["Yahoo no trae un volumen fiable de esta acción en Colombia"])
+    motivos = []
+    if mediana < c["buena_cop_mm"]:
+        motivos.append(f"negocia unos $ {mediana:,.0f} millones al día (pido {c['buena_cop_mm']:,})".replace(",", "."))
+    if mediana60 is not None and mediana60 < c["buena_60_cop_mm"]:
+        motivos.append((f"en 3 meses su día normal es de $ {mediana60:,.0f} millones (pido {c['buena_60_cop_mm']:,})".replace(",", "."))
+                       + (": la liquidez de ahora puede no durar" if mediana >= c["buena_cop_mm"] else ""))
+    if flojo < c["buena_dia_flojo_cop_mm"]:
+        motivos.append(f"en sus días flojos baja a $ {flojo:,.0f} millones (pido {c['buena_dia_flojo_cop_mm']:,})".replace(",", "."))
+    if sin > c["max_dias_sin_negociar"]:
+        motivos.append(f"{sin} de los últimos {len(v)} días no se negoció")
+    if not motivos:
+        return dict(base, nivel=BUENA, motivos=[])
+    return dict(base, nivel=JUSTA if (mediana >= c["justa_cop_mm"] and sin <= 1) else MALA, motivos=motivos)      # "justa" tolera un día sin negociar; "buena", ninguno
 
 
 def medir(f: Any, ticker: str, cfg: dict[str, Any]) -> dict[str, Any]:
@@ -71,24 +86,37 @@ def medir(f: Any, ticker: str, cfg: dict[str, Any]) -> dict[str, Any]:
         return vacio
 
 
-def frase(l: dict[str, Any], orden_cop: float | None = None) -> str:
+def frase(l: dict[str, Any], orden_cop: float | None = None, cfg: dict[str, Any] | None = None) -> str:
     """La liquidez en palabras sencillas (texto plano; quien llama le pone el formato)."""
     t = l["ticker"]
     if l["nivel"] == SIN_DATO:
-        hoy = f" Hoy negoció cerca de $ {l['hoy_mm']:,.0f} millones.".replace(",", ".") if l.get("hoy_mm") else ""
-        return f"💧 Liquidez de {t} en trii: no tengo un historial fiable para medirla.{hoy} Mira en trii cuántas acciones se han negociado hoy antes de operar, y usa orden límite."
+        return (f"💧 Liquidez de {t} en trii: NO LA PUEDO MEDIR (mi fuente no trae un volumen fiable de esta acción en Colombia). No significa que sea mala, "
+                "pero tampoco puedo decir que sea buena: por eso no la recomiendo. Antes de operar mira en trii cuántas acciones se han negociado hoy, y usa orden límite.")
     med = f"$ {l['mediana_mm']:,.0f} millones".replace(",", ".")
     acc = f"{l['acciones_hoy']:,.0f}".replace(",", ".")
     parte = ""
     if orden_cop and l["mediana_mm"]:
         pct = orden_cop / (l["mediana_mm"] * 1e6) * 100
         cuanto = "menos del 1%" if pct < 1 else f"el {pct:,.0f}%"
-        parte = f" Una orden de $ {orden_cop / 1e6:,.0f} millones sería {cuanto} de lo que se negocia en un día.".replace(",", ".")
+        tope = ((cfg or {}).get("liquidez") or {}).get("orden_max_pct", 0.02) * 100
+        grande = " Es una posición grande para esta acción." if pct > tope else ""
+        parte = f" $ {orden_cop / 1e6:,.0f} millones serían {cuanto} de lo que se negocia en un día.{grande}".replace(",", ".")
     if l["nivel"] == BUENA:
-        return f"💧 Liquidez de {t} en trii: buena (se negocian unos {med} al día).{parte}"
+        return f"💧 Liquidez de {t} en trii: buena (se negocian unos {med} al día, también en sus días flojos).{parte}"
+    por = ("; ".join(l.get("motivos") or [])) or f"unos {med} al día"
     if l["nivel"] == JUSTA:
-        return (f"💧 Liquidez de {t} en trii: JUSTA (unos {med} al día; hoy {acc} acciones).{parte} Sólo con orden límite y sin apuro: "
-                "una orden a mercado te compra caro y te vende barato.")
-    sin = f" y {l['dias_sin_negociar']} de los últimos {l['dias']} días no se negoció" if l.get("dias_sin_negociar") else ""
-    return (f"💧 Liquidez de {t} en trii: MALA (unos {med} al día{sin}; hoy {acc} acciones).{parte} Entrar es fácil, salir no: "
-            "puedes quedarte sin comprador o vender muy por debajo. Mejor no operarla.")
+        return (f"💧 Liquidez de {t} en trii: JUSTA ({por}; hoy {acc} acciones).{parte} No la recomiendo. Si la tienes, sal sólo con orden límite y sin apuro: "
+                "una orden a mercado te vende barato.")
+    return (f"💧 Liquidez de {t} en trii: MALA ({por}; hoy {acc} acciones).{parte} Entrar es fácil, salir no: "
+            "puedes quedarte sin comprador o vender muy por debajo. No la operes.")
+
+
+def veredicto(l: dict[str, Any], es_bvc: bool) -> tuple[bool, str]:
+    """(¿apta para comprar según el filtro?, frase corta). Sólo es apta una acción de la BVC con liquidez BUENA; sin dato cuenta como NO apta."""
+    if l["nivel"] == BUENA and es_bvc:
+        return True, "✅ APTA: pasa el filtro de liquidez (y es de la BVC)."
+    if l["nivel"] == BUENA:
+        return False, "⛔ NO la recomiendo: se negocia bien, pero no es de la BVC y mis recomendaciones son sólo de la BVC."
+    if l["nivel"] == SIN_DATO:
+        return False, "⛔ NO APTA: no puedo comprobar su liquidez, y lo que no puedo comprobar no lo apruebo."
+    return False, "⛔ NO APTA: no pasa el filtro de liquidez en trii."
