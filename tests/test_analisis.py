@@ -222,3 +222,13 @@ def test_una_global_sin_historial_fiable_en_colombia_usa_la_bolsa_para_hoy_y_nue
     monkeypatch.setattr(CO, "universo_candidatos", lambda cfg: [])
     t = F.plano(A.resp_variaciones(c))
     assert "🔴 NUCO 💼: hoy -3,1% · concurso ≈ +12,9% · mes ≈ +27,1%" in t and "≈ = acción de EE. UU. sin historial fiable en Colombia" in t
+
+
+def test_el_menu_tiene_botones_para_todos_los_analisis_nuevos():
+    import bot
+    datos = [d for fila in bot.MENU for _, d in fila]
+    for d in ("c:ganar", "c:variaciones", "p:revisar", "c:reemplazo", "c:liquidez", "c:comprar", "c:nuevas", "c:macro"):
+        assert d in datos, d
+    assert all(len(fila) <= 2 for fila in bot.MENU) and all(len(d.encode()) <= 64 for d in datos)      # dos por fila se leen bien en el celular; Telegram limita el dato a 64 bytes
+    fuente = open(bot.__file__, encoding="utf-8").read()
+    assert 'dato == "revisar"' in fuente and 'pend[0] == "revisar"' in fuente                          # el botón pregunta la acción y la respuesta va a /revisar

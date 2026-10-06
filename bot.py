@@ -33,6 +33,9 @@ ACTUALIZACIONES = ["message", "callback_query", "my_chat_member"]       # mensaj
 MENU = [[("📊 Semáforo", "c:semaforo"), ("💼 Mi cartera", "c:cartera")],
         [("🔄 Buscar noticias", "c:nuevas"), ("🌍 Macro", "c:macro")],
         [("🛒 Qué comprar", "c:comprar"), ("📍 Cómo voy", "c:estado")],
+        [("🏆 ¿Con cuál gano?", "c:ganar"), ("📈 Rentabilidad del día", "c:variaciones")],
+        [("🔍 ¿Compro esta acción?", "p:revisar"), ("🔁 Reemplazar mi acción", "c:reemplazo")],
+        [("💧 Liquidez de lo mío", "c:liquidez")],
         [("➕ Compré", "p:compra"), ("➖ Vendí", "p:venta")],
         [("🏁 Mi ranking", "p:rank")]]
 PENDIENTE_S = 600                                                       # cuánto espera el bot la respuesta a "¿cuántas compraste?"
@@ -212,6 +215,9 @@ def construir_app(token: str, chat_id: int, cfg: dict | None = None) -> Applicat
             escrito = f"{pend[1]} {escrito}"                                            # venía de "✅ La compré" de una noticia: ya se sabe la acción
         if pend and pend[0] == "rank":
             escrito = f"voy {escrito}" if not any(p in escrito.lower() for p in ("voy", "corte", "llevo")) else escrito
+        if pend and pend[0] == "revisar":                                               # venía del botón "¿Compro esta acción?": lo escrito es el nombre
+            await comandos["revisar"](update, escrito.split())
+            return
         try:
             ctx = S.crear_contexto()
             r = await asyncio.to_thread(S.resp_texto, ctx, escrito, forzar, solo_dueno(chat))
@@ -262,6 +268,11 @@ def construir_app(token: str, chat_id: int, cfg: dict | None = None) -> Applicat
             pendiente[chat] = ("rank", None, time.monotonic() + PENDIENTE_S)
             await responder(update, "🏁 " + F.b("¿Cómo vas?") + "\nEscribe tu rentabilidad (la que muestra trii), por ejemplo " + F.b("3,5") + ".\nSi también sabes la del corte: "
                             + F.b("voy 3,5 y el corte está en 8") + ".")
+        elif tipo == "p" and dato == "revisar":
+            pendiente[chat] = ("revisar", None, time.monotonic() + PENDIENTE_S)
+            await responder(update, "🔍 " + F.b("¿Qué acción estás pensando comprar?") + "
+Escribe el nombre, por ejemplo " + F.b("ecopetrol") + " o " + F.b("bancolombia")
+                            + ". Te digo qué tiene hoy a favor y en contra.")
         elif tipo == "k" and dato:
             pendiente[chat] = ("compra", dato, time.monotonic() + PENDIENTE_S)
             await responder(update, f"✅ {F.b('¿Cuánto compraste de ' + dato + '?')}\nEscribe la cantidad de acciones ({F.b('300')}) o la plata ({F.b('20 millones')}). "
