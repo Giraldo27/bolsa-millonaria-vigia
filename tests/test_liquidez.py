@@ -225,3 +225,45 @@ def test_el_simbolo_de_la_bolsa_se_encuentra_con_o_sin_el_co_final():
     assert {t: _LQ.fila_libro(f, t, CFG)["prom10_mm"] for t in ("NUCO", "TSLA", "META", "PFBCOLOM")} == {"NUCO": 1, "TSLA": 2, "META": 3, "PFBCOLOM": 4}
     assert _LQ.fila_libro(f, "ECOPETROL", CFG) is None                                    # no está en la tabla
     assert _LQ.fila_libro(SimpleNamespace(), "NUCO", CFG) is None                         # fuente sin libro (pruebas antiguas): no se cruza nada
+
+
+# =============================== continuidad: que se negocie todo el día y no a ratos ===============================
+_CFG_C = {"liquidez": dict(_CFG_L["liquidez"], continuidad=dict(activo=True, min=0.65, min_dia_flojo=0.55, dias_min=10, cache_min=240))}
+
+
+def _velas(tramos_por_dia, dias=12):
+    """Velas de 5 minutos con operaciones en los primeros `tramos_por_dia` tramos pares/seguidos de cada día (hora de Nueva York)."""
+    idx = []
+    for d in pd.bdate_range(end="2026-10-05", periods=dias):
+        paso = 78 / tramos_por_dia
+        idx += [pd.Timestamp(d.date(), tz="America/New_York") + pd.Timedelta(minutes=570 + 5 * int(i * paso)) for i in range(tramos_por_dia)]
+    return pd.DataFrame({"Volume": 100.0}, index=pd.DatetimeIndex(idx))
+
+
+def test_se_mide_en_que_parte_del_dia_hay_operaciones():
+    r = _LQ.resumen_continuidad(_velas(39), _dt.date(2026, 10, 6))
+    assert r["dias"] == 12 and r["mediana"] == 0.5 and r["flojo"] == 0.5 and r["pausa"] == 10
+    assert _LQ.resumen_continuidad(_velas(78), _dt.date(2026, 10, 6))["mediana"] == 1.0
+    assert _LQ.resumen_continuidad(_velas(78), _dt.date(2026, 10, 5))["dias"] == 11                    # el día en curso no cuenta
+    assert _LQ.resumen_continuidad(pd.DataFrame({"Volume": []}), None) is None
+
+
+def test_la_que_mueve_plata_pero_se_negocia_a_ratos_no_se_aprueba():
+    """Caso real (PFSURA, 6-oct-2026): $ 8.000 millones al día, pero operaciones sólo en el 63 % del día, con pausas de 25 minutos."""
+    buena = dict(ticker="PFSURA", simbolo="PFGRUPSURA.CL", nivel=_LQ.BUENA, mediana_mm=8293.0, hoy_mm=8762.0, acciones_hoy=151854.0, dias_sin_negociar=0, dias=20, motivos=[])
+    l = _LQ.exigir_continuidad(buena, dict(mediana=0.63, flojo=0.53, pausa=25.0, dias=21), _CFG_C)
+    assert l["nivel"] == _LQ.JUSTA and l["a_ratos"]
+    t = _LQ.frase(l)
+    assert "JUSTA" in t and "se negocia a ratos" in t and "63%" in t and "pido 65%" in t and "pausas de unos 25 minutos" in t and "orden límite" in t
+    assert _LQ.veredicto(l, es_bvc=True) == (False, "⛔ NO APTA: mueve buena plata al día, pero se negocia a ratos.")
+    seguido = _LQ.exigir_continuidad(buena, dict(mediana=0.86, flojo=0.79, pausa=15.0, dias=21), _CFG_C)
+    assert seguido["nivel"] == _LQ.BUENA and "Hay operaciones en el 86% del día" in _LQ.frase(seguido)
+    flojo = _LQ.exigir_continuidad(buena, dict(mediana=0.70, flojo=0.40, pausa=20.0, dias=21), _CFG_C)
+    assert flojo["nivel"] == _LQ.JUSTA and "en sus días flojos" in flojo["motivos"][0]
+
+
+def test_sin_dato_de_continuidad_no_se_castiga_y_lo_justo_no_cambia():
+    buena = dict(ticker="X", simbolo="X.CL", nivel=_LQ.BUENA, mediana_mm=5000.0, motivos=[])
+    assert _LQ.exigir_continuidad(buena, None, _CFG_C) == buena
+    justa = dict(buena, nivel=_LQ.JUSTA, motivos=["poco"])
+    assert _LQ.exigir_continuidad(justa, dict(mediana=0.2, flojo=0.1, pausa=90.0, dias=21), _CFG_C)["motivos"] == ["poco"]

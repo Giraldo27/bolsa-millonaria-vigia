@@ -111,7 +111,8 @@ def construir_candidato(f: FuentesDatos, ticker: str, ahora: dt.datetime, cfg: d
     if grupo == "local":                                                               # en la BVC manda la liquidez real de trii: mediana y días sin negociar
         from .liquidez import clasificar
         lq = clasificar(ent.cierres * ent.volumenes, ent.volumenes, cfg)
-        from .liquidez import BUENA
+        from .liquidez import BUENA, afinar
+        lq = afinar(f, ticker, lq, cfg)                                                # + lo negociado en la bolsa y que se negocie todo el día, no a ratos
         liquidez = (lq["mediana_mm"] or 0.0) if lq["nivel"] == BUENA else 0.0             # sólo "buena" entra a las recomendaciones; justa, mala o sin dato quedan fuera
     else:                                                                              # acción de EE. UU.: NO vale su liquidez en Nueva York, vale la de trii (libro de Colombia)
         from .liquidez import BUENA, medir

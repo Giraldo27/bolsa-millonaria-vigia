@@ -839,7 +839,7 @@ def resp_liquidez(ctx: Contexto, args: list[str]) -> str:
     c = ctx.cfg["liquidez"]
     mil = lambda v: f"{v:,}".replace(",", ".")                                          # noqa: E731
     L += ["", F.it(f"Para aprobar una acción pido: día normal de al menos $ {mil(c['buena_cop_mm'])} millones, estable en 3 meses (al menos {mil(c['buena_60_cop_mm'])}), "
-                   f"días flojos de al menos {mil(c['buena_dia_flojo_cop_mm'])}, ningún día sin negociar y que sea de la BVC."),
+                   f"días flojos de al menos {mil(c['buena_dia_flojo_cop_mm'])}, ningún día sin negociar, que se negocie durante todo el día (no a ratos) y que sea de la BVC."),
           F.it("Fuentes: historial diario de cada acción en Colombia, cruzado con lo negociado en la Bolsa de Colombia (15 minutos de retraso). "
                "Si no coinciden, me quedo con la más prudente." if getattr(ctx.f, "libro_bvc", lambda: None)() else
                "Ahora mismo no pude leer lo negociado en la Bolsa de Colombia: uso sólo el historial diario.")]

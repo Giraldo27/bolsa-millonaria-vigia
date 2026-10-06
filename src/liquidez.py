@@ -124,9 +124,75 @@ def cruzar(l: dict[str, Any], fila: dict[str, Any] | None, cfg: dict[str, Any], 
     return l
 
 
+def resumen_continuidad(velas: pd.DataFrame, hoy: dt.date | None = None) -> dict[str, Any] | None:
+    """De las velas de 5 minutos (sólo existen o traen volumen cuando hubo operaciones): en qué parte del día se negocia la acción.
+    {mediana, flojo (percentil 25), pausa (minutos, mediana de la pausa más larga del día), dias}. La sesión tiene 78 tramos de 5 minutos."""
+    if velas is None or len(velas) == 0:
+        return None
+    idx = pd.DatetimeIndex(velas.index)
+    idx = idx.tz_localize("UTC") if idx.tz is None else idx
+    idx = idx.tz_convert("America/New_York")
+    minuto = idx.hour * 60 + idx.minute
+    ok = (minuto >= 570) & (minuto < 960) & (velas["Volume"].fillna(0).to_numpy() > 0)
+    s = pd.Series(minuto[ok], index=idx[ok].date)
+    fraccion, pausas = [], []
+    for dia, m in s.groupby(level=0):
+        if hoy is not None and dia >= hoy:                                             # el día en curso va por la mitad: no cuenta
+            continue
+        puntos = [570, *sorted(m.to_numpy()), 960]
+        fraccion.append(len(m) / 78)
+        pausas.append(max(b - a for a, b in zip(puntos, puntos[1:])))
+    if not fraccion:
+        return None
+    fr = pd.Series(fraccion)
+    return dict(mediana=float(fr.median()), flojo=float(fr.quantile(0.25)), pausa=float(pd.Series(pausas).median()), dias=len(fr))
+
+
+def continuidad(f: Any, ticker: str, cfg: dict[str, Any]) -> dict[str, Any] | None:
+    """¿La acción se negocia todo el día o a ratos? (velas de 5 minutos del último mes, caché de 4 horas). None si no se puede medir."""
+    c = (cfg.get("liquidez") or {}).get("continuidad") or {}
+    sym = simbolo_trii(ticker, cfg)
+    if not c.get("activo") or sym is None:
+        return None
+
+    def bajar() -> pd.DataFrame:
+        h = f.yf.Ticker(sym).history(period="1mo", interval="5m")
+        if h is None or h.empty:
+            raise RuntimeError("Yahoo devolvió vacío")
+        return h[["Volume"]]
+    try:
+        h = f._con_cache(f"continuidad|{sym}", c.get("cache_min", 240), bajar, f"continuidad {ticker}")
+        r = resumen_continuidad(h, dt.datetime.now(dt.timezone(dt.timedelta(hours=-5))).date())
+        return r if r and r["dias"] >= c.get("dias_min", 10) else None
+    except Exception:                                                                  # noqa: BLE001 — sin dato no se castiga ni se inventa
+        return None
+
+
+def exigir_continuidad(l: dict[str, Any], cont: dict[str, Any] | None, cfg: dict[str, Any]) -> dict[str, Any]:
+    """Una acción puede mover mucha plata al día y aun así negociarse A RATOS (pausas largas sin ninguna operación): en trii eso se ve como "no hay con
+    quién negociar". "Buena" exige además operaciones en buena parte del día; si no, baja a "justa". Sin dato de continuidad no se castiga."""
+    if not cont:
+        return l
+    l = dict(l, continuidad=cont)
+    c = cfg["liquidez"]["continuidad"]
+    if l["nivel"] != BUENA or (cont["mediana"] >= c["min"] and cont["flojo"] >= c["min_dia_flojo"]):
+        return l
+    if cont["mediana"] < c["min"]:
+        motivo = f"se negocia a ratos: sólo hay operaciones en el {cont['mediana']:.0%} del día (pido {c['min']:.0%})"
+    else:
+        motivo = f"en sus días flojos sólo hay operaciones en el {cont['flojo']:.0%} del día (pido {c['min_dia_flojo']:.0%})"
+    return dict(l, nivel=JUSTA, a_ratos=True, motivos=[motivo + f", con pausas de unos {cont['pausa']:.0f} minutos sin que nadie compre ni venda"])
+
+
+def afinar(f: Any, ticker: str, l: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
+    """Las dos comprobaciones que se suman a la medición diaria: lo negociado en la Bolsa de Colombia y la continuidad dentro del día."""
+    l = cruzar(dict(l, ticker=ticker), fila_libro(f, ticker, cfg), cfg)
+    return exigir_continuidad(l, continuidad(f, ticker, cfg) if l["nivel"] == BUENA else None, cfg)
+
+
 def medir(f: Any, ticker: str, cfg: dict[str, Any]) -> dict[str, Any]:
-    """Liquidez de la acción en trii, cruzada con el libro de la Bolsa de Colombia. Nunca lanza: si no hay datos devuelve nivel sin_dato."""
-    return cruzar(_medir_historia(f, ticker, cfg), fila_libro(f, ticker, cfg), cfg)
+    """Liquidez de la acción en trii: medición diaria + lo negociado en la Bolsa de Colombia + continuidad dentro del día. Nunca lanza: sin datos, sin_dato."""
+    return afinar(f, ticker, _medir_historia(f, ticker, cfg), cfg)
 
 
 def _medir_historia(f: Any, ticker: str, cfg: dict[str, Any]) -> dict[str, Any]:
@@ -170,7 +236,12 @@ def frase(l: dict[str, Any], orden_cop: float | None = None, cfg: dict[str, Any]
     if l["nivel"] == BUENA and l.get("fuente") == "bvc":
         return f"💧 Liquidez de {t} en trii: buena (se negocian en promedio unos {med} al día, según la Bolsa de Colombia).{parte}"
     if l["nivel"] == BUENA:
-        return f"💧 Liquidez de {t} en trii: buena (se negocian unos {med} al día, también en sus días flojos).{parte}"
+        cont = l.get("continuidad")
+        seguido = f" Hay operaciones en el {cont['mediana']:.0%} del día." if cont else ""
+        return f"💧 Liquidez de {t} en trii: buena (se negocian unos {med} al día, también en sus días flojos).{seguido}{parte}"
+    if l.get("a_ratos"):
+        return (f"💧 Liquidez de {t} en trii: JUSTA. Mueve unos {med} al día, pero {por_ratos(l)}.{parte} No la recomiendo: si la tienes o decides entrar, "
+                "hazlo sólo con orden límite y con paciencia; tu orden puede tardar un buen rato en ejecutarse.")
     por = ("; ".join(l.get("motivos") or [])) or f"unos {med} al día"
     if l.get("fuente") == "bvc":                                                       # medida con el libro de la bolsa: se dice cuántas acciones fueron, que es lo que se ve en trii
         por += f"; última sesión: {acc} acciones, $ " + f"{l['hoy_mm']:,.0f}".replace(",", ".") + " millones"
@@ -185,6 +256,10 @@ def frase(l: dict[str, Any], orden_cop: float | None = None, cfg: dict[str, Any]
             "puedes quedarte sin comprador o vender muy por debajo. No la operes.")
 
 
+def por_ratos(l: dict[str, Any]) -> str:
+    return "; ".join(l.get("motivos") or [])
+
+
 def veredicto(l: dict[str, Any], es_bvc: bool) -> tuple[bool, str]:
     """(¿apta para comprar según el filtro?, frase corta). Sólo es apta una acción de la BVC con liquidez BUENA; sin dato cuenta como NO apta."""
     if l["nivel"] == BUENA and es_bvc:
@@ -193,4 +268,6 @@ def veredicto(l: dict[str, Any], es_bvc: bool) -> tuple[bool, str]:
         return False, "⛔ NO la recomiendo: se negocia bien, pero no es de la BVC y mis recomendaciones son sólo de la BVC."
     if l["nivel"] == SIN_DATO:
         return False, "⛔ NO APTA: no puedo comprobar su liquidez, y lo que no puedo comprobar no lo apruebo."
+    if l.get("a_ratos"):
+        return False, "⛔ NO APTA: mueve buena plata al día, pero se negocia a ratos."
     return False, "⛔ NO APTA: no pasa el filtro de liquidez en trii."

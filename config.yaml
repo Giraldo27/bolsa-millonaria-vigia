@@ -445,6 +445,12 @@ liquidez:                                   # liquidez REAL en trii = lo que se 
   max_dias_sin_negociar: 0                  # 4) ningún día sin negociación en la ventana (antes se toleraba 1)
   justa_cop_mm: 500                         # "justa": mediana ≥ 500 y sin días sin negociar → sólo con orden límite; por debajo es "mala"
   orden_max_pct: 0.02                       # una posición tuya de más del 2 % de lo que se negocia en un día se marca como "grande para esta acción"
+  continuidad:                              # 5) que se negocie TODO el día y no a ratos (velas de 5 minutos del último mes; la sesión tiene 78 tramos)
+    activo: true
+    min: 0.65                               # un día normal: operaciones en al menos el 65 % de los tramos (con este corte pasan 5 acciones de la BVC)
+    min_dia_flojo: 0.55                     # en sus días flojos (percentil 25): al menos el 55 %
+    dias_min: 10                            # con menos días medidos no se castiga
+    cache_min: 240
   libro_bvc:                                # segunda fuente: lo negociado en la Bolsa de Colombia (locales y globales), con 15 min de retraso
     activo: true
     url: "https://scanner.tradingview.com/colombia/scan"     # tablero público con los datos de la bolsa (la página de la bolsa exige una llave)

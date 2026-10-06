@@ -30,7 +30,7 @@ def _una(f: FuentesDatos, t: str, base: str, fin: dt.date, hoy: dt.date, cfg: di
         real = float(r.std(ddof=1)) * math.sqrt(252)
         from . import liquidez as LQ
         if group_of(t, cfg) == "local":
-            lq = LQ.clasificar(d["Close"] * d["Volume"], d["Volume"], cfg)
+            lq = LQ.afinar(f, t, LQ.clasificar(d["Close"] * d["Volume"], d["Volume"], cfg), cfg)
         else:                                                                           # EE. UU.: la liquidez que cuenta es la de trii, no la de Nueva York
             lq = LQ.medir(f, t, cfg)
         liq, liquida = float(lq.get("mediana_mm") or 0.0), lq["nivel"] == LQ.BUENA
