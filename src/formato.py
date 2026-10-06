@@ -500,21 +500,28 @@ def msg_cartera(filas: list[dict[str, Any]], rent: float | None, tasa: float | N
     return "\n".join(L)
 
 
-def msg_base(filas: list[dict[str, Any]], veredicto: str, mejores: list[dict[str, Any]], base: str, cfg: dict[str, Any], top: int = 8) -> str:
+def msg_base(filas: list[dict[str, Any]], veredicto: str, mejores: list[dict[str, Any]], base: str, cfg: dict[str, Any], top: int = 8,
+             base_liquida: bool = True) -> str:
     """¿Hay una base mejor para TODO el concurso? Compara EE. UU. y BVC por el movimiento esperado hasta el final."""
     fin = pd.Timestamp(cfg["concurso"]["final"]["fecha"]).date()
     ventaja = cfg["seleccion_base"]["ventaja_minima"]
     if veredicto == "sin_datos":
         return f"🔎 {b('Mejor base')}: no pude calcular la comparación ahora (faltan datos). Intenta de nuevo en unos minutos."
-    L = [f"🔎 {b('¿Hay una base mejor que ' + base + '?')}", it(f"Compara todas las acciones líquidas de EE. UU. y de la BVC por cuánto se espera que se muevan hasta el {fecha(fin)}."), ""]
-    if mejores:
+    L = [f"🔎 {b('¿Hay una base mejor que ' + base + '?')}", it(f"Compara las acciones que se negocian bien en trii por cuánto se espera que se muevan hasta el {fecha(fin)}."), ""]
+    if not base_liquida:                                                               # nunca "mantén" algo que en trii no se puede vender bien
+        otras = [x for x in filas if not x["es_base"]]
+        L.append(f"⛔ {b(base + ' no pasa el filtro de liquidez en trii')}: se negocia poco allá (o no lo puedo comprobar), así que no la recomiendo como base aunque se mueva mucho.")
+        if otras:
+            L.append(f"👉 De las que sí se negocian bien en trii, la que más puede moverse es {b(otras[0]['ticker'])} (±{n(otras[0]['mee'] * 100, 1)}% hasta el final). "
+                     f"Si sales de {esc(base)}, hazlo con orden límite y sin apuro.")
+    elif mejores:
         m = mejores[0]
         L.append(f"⚠️ {b('Revisa la base')}: {esc(m['ticker'])} se espera que se mueva {n(m['vs_base'], 2)} veces lo que {esc(base)} (supera el {pct(ventaja, 0)} de ventaja que pido para cambiar).")
     else:
         L.append(f"✅ {b('Mantén ' + base)}: ninguna otra supera su movimiento esperado por el {pct(ventaja, 0)} que se necesita para justificar el cambio.")
     L.append("")
     for i, x in enumerate(filas[:top], 1):
-        marca = " ← tu base" if x["es_base"] else ""
+        marca = (" ← tu base" + ("" if base_liquida else " ⛔ poca liquidez en trii")) if x["es_base"] else ""
         fuente = "opciones + últimos 60 días" if x["iv"] else "últimos 60 días"
         L.append(f"{i}. {b(x['ticker'])} ({'BVC' if x['grupo'] == 'local' else 'EE. UU.'}): ±{n(x['mee'] * 100, 1)}% hasta el final ({n(x['vs_base'], 2)}× la base; {fuente}){marca}")
     L += ["", it("Es el movimiento ESPERADO (sube o baja): mide oportunidad y riesgo por igual. Más movimiento no garantiza ganar.")]

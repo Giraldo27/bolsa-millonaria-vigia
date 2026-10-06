@@ -519,7 +519,12 @@ def resp_base(ctx: Contexto) -> str:
     est = leer_estado(ctx)
     filas = ranking_base(ctx.f, ctx.cfg, ctx.ahora, est.activo)
     v, mejores = veredicto(filas, ctx.cfg)
-    return F.msg_base(filas, v, mejores, est.activo, ctx.cfg)
+    from . import liquidez as LQ
+    try:                                                                               # la base también tiene que poder negociarse en trii: si no, no se dice "mantén"
+        base_liquida = LQ.medir(ctx.f, est.activo, ctx.cfg)["nivel"] == LQ.BUENA
+    except Exception:                                                                  # noqa: BLE001 — sin dato no se aprueba
+        base_liquida = False
+    return F.msg_base(filas, v, mejores, est.activo, ctx.cfg, base_liquida=base_liquida)
 
 
 def generar_informe(ctx: Contexto) -> tuple[str, str]:

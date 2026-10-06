@@ -37,7 +37,7 @@ PREGUNTA = re.compile(r"(\b(que|cual|cuales|cuando|como) (accion(es)? )?(compro|
                       r"podria|(voy a|quiero|puedo) (comprar|vender)|si (compro|vendo))\b|\?)")
 DESHACER = re.compile(r"\b(deshacer|deshaz|deshaga|me equivoque|equivocacion|borra (lo|la) ultim|anula|anular|corrige lo ultimo|cancela (lo )?ultim)")
 CONSULTAS = [
-    ("comprar", re.compile(r"\b(que (accion )?(compro|comprar|comprarias)|en que (invierto|meto)|recomiend\w*|recomendacion(es)?|que hago con la plata)\b")),
+    ("comprar", re.compile(r"\b(que (accion )?(compro|comprar|comprarias)|en que (invierto|meto)|recomiend\w*|recomendacion(es)?|que hago con la plata|(cuales?|que) (son |es )?(las? )?mejor(es)? (accion(es)?|opcion(es)?)|por (cual|que) (la |lo |las )?cambio)\b")),
     ("semaforo", re.compile(r"\b(semaforo|como (estan|esta|van) mis acciones)\b")),
     ("cartera", re.compile(r"\b(cartera|portafolio|mis acciones|que tengo)\b")),
     ("nuevas", re.compile(r"\b(actualiza\w* (las )?noticias|noticias nuevas|nuevas noticias|busca\w* noticias|hay noticias|ultimas noticias|refresca\w*)\b")),
