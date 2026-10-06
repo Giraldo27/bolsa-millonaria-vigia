@@ -449,7 +449,9 @@ noticias_bvc:
   cada_s: 60                                # una ronda cada minuto, las 24 horas (pedido del usuario; las empresas publican hechos relevantes también fuera del horario)
   ventana_min: 180                          # sólo cuentan noticias publicadas en las últimas 3 horas (lo más viejo ya está en el precio)
   umbral_alto: 0.60                         # puntaje mínimo (0–1) para considerarla de ALTO impacto y avisarte
-  umbral_negativa_sin_tener: 0.80           # mala noticia de una acción que NO tienes: sólo se avisa si es muy fuerte
+  umbral_negativa_sin_tener: 0.80           # mala noticia de una acción que NO tienes: sólo es de ALTO impacto si es muy fuerte (si no, sale como relevante)
+  umbral_medio: 0.40                        # entre este valor y umbral_alto: noticia RELEVANTE (aviso corto, con su impacto estimado en %)
+  max_medias_hora: 4                        # tope de avisos de noticias relevantes por hora (las de alto impacto no tienen tope)
   max_por_ronda: 2
   enfriamiento_emisor_min: 60               # no repetir avisos de la misma empresa y sentido antes de este tiempo
   timeout_s: 10

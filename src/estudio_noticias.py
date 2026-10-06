@@ -72,7 +72,8 @@ def resumir(filas: list[dict[str, Any]], horizontes: list[int], campo: str = "de
     if not filas:
         return {"n": 0}
     out: dict[str, Any] = {"n": len(filas), "z_abs_mediana": float(np.median([abs(f["z"]) for f in filas])),
-                           "pct_fuerte": float(np.mean([abs(f["z"]) >= 2 for f in filas])), "reaccion_media": float(np.mean([f["reaccion"] for f in filas]))}
+                           "pct_fuerte": float(np.mean([abs(f["z"]) >= 2 for f in filas])), "reaccion_media": float(np.mean([f["reaccion"] for f in filas])),
+                           "abs_media": float(np.mean([abs(f["reaccion"]) for f in filas]))}       # cuánto se movió la acción ese día, sin importar el sentido
     for h in horizontes:
         x = np.array([f[f"{campo}_{h}"] for f in filas if f.get(f"{campo}_{h}") is not None], dtype=float)
         if len(x) == 0:

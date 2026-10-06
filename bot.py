@@ -139,6 +139,18 @@ def construir_app(token: str, chat_id: int, cfg: dict | None = None) -> Applicat
     comando("start", lambda c, a: F.AYUDA, admite_html=False, botones=MENU)
     comando("menu", lambda c, a: "👇 " + F.b("¿Qué quieres hacer?"), admite_html=False, botones=MENU)
 
+    def suscripcion(activar: bool):
+        async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+            try:
+                texto = await asyncio.to_thread(S.suscribir, S.crear_contexto(), update.effective_chat.id, activar)
+            except Exception:                                     # noqa: BLE001
+                log.exception("error en la suscripción")
+                texto = "⚠️ No pude cambiar los avisos de este chat ahora. Prueba de nuevo en un minuto."
+            await responder(update, texto)
+        return handler
+    app.add_handler(CommandHandler("avisos", suscripcion(True), filters=filtro))
+    app.add_handler(CommandHandler("silencio", suscripcion(False), filters=filtro))
+
     def tomar_pendiente(chat: int) -> tuple[str, str | None] | None:
         p = pendiente.pop(chat, None)
         return (p[0], p[1]) if p and time.monotonic() <= p[2] else None

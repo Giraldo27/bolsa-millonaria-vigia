@@ -449,6 +449,15 @@ def evidencia(estudio: dict[str, Any], grupo: str, clave: str, sesiones: int) ->
     return dict(fila[f"h{h}"], h=h, casos=fila["n"], grupo=grupo, clave=clave, pct_fuerte=fila.get("pct_fuerte"))
 
 
+def impacto_estimado(cat: str, sentido: int, estudio: dict[str, Any]) -> float | None:
+    """Impacto estimado sobre el precio, con signo: lo que se movió en promedio la acción (frente al mercado) el día de un anuncio de ESE tipo, en el
+    sentido de la noticia. Si ese tipo tiene pocos casos medidos, se usa el promedio de todos los tipos. None sin estudio."""
+    fila = (estudio.get("categorias") or {}).get(f"{cat}|todos") or {}
+    if fila.get("n", 0) < estudio.get("n_minimo", 15) or not fila.get("abs_media"):
+        fila = (estudio.get("global") or {}).get("todos") or {}
+    return sentido * float(fila["abs_media"]) if fila.get("abs_media") else None
+
+
 def recomendar(cat: str, sentido: int, ticker: str, p: dict[str, Any] | None, ahora: dt.datetime, cfg: dict[str, Any], tengo: bool = False,
                estudio: dict[str, Any] | None = None, sentido_texto: int = 0) -> dict[str, Any]:
     """Qué hacer con la noticia, SEGÚN LA EVIDENCIA (no según la intuición de "buena noticia = comprar").
@@ -501,6 +510,8 @@ class Senal:
     items: list[Item]
     rec: dict[str, Any]
     ts: dt.datetime
+    nivel: str = "alto"                     # alto (aviso completo con recomendación) | medio (aviso corto)
+    impacto: float | None = None            # impacto estimado sobre el precio, con signo (+0,012 = +1,2 %)
 
     @property
     def fuentes(self) -> list[str]:
@@ -542,33 +553,41 @@ def ronda(lector: Lector, mem: Memoria, f: Any, ahora: dt.datetime, cfg: dict[st
             g["clasifs"].append(c)
     senales: list[Senal] = []
     estudio = cargar_estudio()
+    hace_1h = (ahora_utc - dt.timedelta(hours=1)).isoformat(timespec="seconds")
+    medias = mem.d["medias"] = [x for x in mem.d.get("medias", []) if x >= hace_1h]       # avisos de noticias relevantes en la última hora (tope)
     for (nombre, cat), g in grupos.items():
         e: Emisor = g["emisor"]
         suma = sum(c.sentido for c in g["clasifs"])
         c = Clasif(cat, (suma > 0) - (suma < 0), max(x.peso for x in g["clasifs"]))
         origenes, n_f = {i.origen for i in g["items"]}, len({i.fuente for i in g["items"]})
-        if puntuar(Clasif(cat, c.sentido or 1, c.peso), origenes, n_f, None, cfg)[0] + n["bono_precio"] < n["umbral_alto"]:
+        if puntuar(Clasif(cat, c.sentido or 1, c.peso), origenes, n_f, None, cfg)[0] + n["bono_precio"] < n["umbral_medio"]:
             continue                                                                   # ni con el precio a favor llegaría: no se gasta una consulta de precios
         ticker, p = elegir_ticker(f, e, cfg, ahora)
         puntaje, sentido = puntuar(c, origenes, n_f, p["z"] if p else None, cfg)
-        if puntaje < n["umbral_alto"] or sentido == 0:
+        if puntaje < n["umbral_medio"] or sentido == 0:
             continue
         tengo = bool(set(e.tickers) & tenidos)
-        if sentido < 0 and not tengo and puntaje < n["umbral_negativa_sin_tener"]:
-            continue                                                                   # mala noticia de una acción que no tienes: sólo si es muy fuerte
+        nivel = "alto" if puntaje >= n["umbral_alto"] else "medio"
+        if nivel == "alto" and sentido < 0 and not tengo and puntaje < n["umbral_negativa_sin_tener"]:
+            nivel = "medio"                                                            # mala noticia de una acción que no tienes: informativa, salvo que sea muy fuerte
+        if nivel == "medio" and len(medias) >= n["max_medias_hora"]:
+            continue
         clave = f"{nombre}|{sentido:+d}"
         ult = mem.d["avisos"].get(clave)
         if ult and (ahora_utc - dt.datetime.fromisoformat(ult)).total_seconds() / 60 < n["enfriamiento_emisor_min"]:
             continue
         rec = recomendar(cat, sentido, ticker, p, ahora, cfg, tengo, estudio, c.sentido)
-        senales.append(Senal(nombre, ticker, cat, sentido, puntaje, sorted(g["items"], key=lambda i: (i.origen != "sfc", -i.ts.timestamp())), rec, ahora_utc))
+        senales.append(Senal(nombre, ticker, cat, sentido, puntaje, sorted(g["items"], key=lambda i: (i.origen != "sfc", -i.ts.timestamp())), rec, ahora_utc,
+                             nivel, impacto_estimado(cat, sentido, estudio)))
     senales.sort(key=lambda s: -s.puntaje)
     senales = senales[: n["max_por_ronda"]]
     for s in senales:
+        if s.nivel == "medio":
+            medias.append(ahora_utc.isoformat(timespec="seconds"))
         mem.d["avisos"][f"{s.emisor}|{s.sentido:+d}"] = ahora_utc.isoformat(timespec="seconds")
         mem.d["senales"].append(dict(ts=ahora_utc.isoformat(timespec="minutes"), emisor=s.emisor, ticker=s.ticker, cat=s.cat, sentido=s.sentido,
                                      puntaje=round(s.puntaje, 2), titulo=s.items[0].titulo[:200], fuente=s.items[0].fuente, url=s.items[0].url,
-                                     accion=s.rec["accion"], salida=s.rec["salida"].isoformat() if s.rec.get("salida") else None))
+                                     accion=s.rec["accion"], salida=s.rec["salida"].isoformat() if s.rec.get("salida") else None, nivel=s.nivel, impacto=s.impacto))
         mem.sucia = True
     mem.podar(ahora_utc)
     return senales, salud

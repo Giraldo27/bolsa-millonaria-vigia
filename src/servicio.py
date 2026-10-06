@@ -77,11 +77,43 @@ def enviar_o_encolar(ctx: Contexto, texto: str, botones: list[list[tuple[str, st
     if ctx.dry:
         ctx.salida("─" * 60 + "\n" + F.plano(texto) + ("\n[" + "] [".join(t for fila in botones for t, _ in fila) + "]" if botones else "") + "\n" + "─" * 60)
         return True
+    _a_suscriptores(ctx, texto, botones)
     if (enviar(texto, ctx.cfg, botones=botones) if botones else enviar(texto, ctx.cfg)):
         return True
     with transaccion(ctx) as e:
         e.agregar_pendiente(texto, ctx.ahora)
     return False
+
+
+def _a_suscriptores(ctx: Contexto, texto: str, botones: list[list[tuple[str, str]]] | None = None) -> None:
+    """Copia del aviso automático a los chats que lo pidieron con /avisos (otro celular, un grupo…). Si uno falla no afecta a los demás ni al chat principal."""
+    import os
+    try:
+        chats = [c for c in leer_estado(ctx).d.get("suscriptores", []) if str(c) != (os.environ.get("TELEGRAM_CHAT_ID") or "").strip()]
+    except Exception:                                                                  # noqa: BLE001
+        return
+    for c in chats:
+        try:
+            env = {**os.environ, "TELEGRAM_CHAT_ID": str(c)}
+            enviar(texto, ctx.cfg, env=env, botones=botones) if botones else enviar(texto, ctx.cfg, env=env)
+        except Exception:                                                              # noqa: BLE001
+            continue
+
+
+def suscribir(ctx: Contexto, chat: int, activar: bool) -> str:
+    """/avisos y /silencio: este chat empieza (o deja) de recibir los avisos automáticos. El chat principal (TELEGRAM_CHAT_ID) los recibe siempre."""
+    import os
+    if str(chat) == (os.environ.get("TELEGRAM_CHAT_ID") or "").strip():
+        return "🔔 Este es el chat principal: ya recibe todos los avisos automáticos (noticias, macro, cambios sugeridos, resumen de la mañana y radar)."
+    with transaccion(ctx) as e:
+        lista = [c for c in e.d.setdefault("suscriptores", []) if c != chat]
+        if activar:
+            lista.append(chat)
+        e.d["suscriptores"] = lista[-20:]
+    if activar:
+        return ("🔔 " + F.b("Listo: este chat también recibirá los avisos automáticos") + "\nNoticias de la BVC con su impacto en %, movimientos macro con las acciones "
+                "beneficiadas y afectadas, cambios sugeridos, el resumen de las 8:10 y el radar de las 19:30.\nPara dejar de recibirlos: /silencio")
+    return "🔕 Listo: este chat ya no recibirá avisos automáticos. Para volver a activarlos: /avisos"
 
 
 def enviar_pendientes(ctx: Contexto) -> int:
@@ -899,6 +931,11 @@ def tick_noticias(ctx: Contexto, lector: Any, mem: Any, sugerencia: dict[str, An
     mem.ultimos_items = getattr(lector, "ultimos", [])                                 # los titulares recién leídos también sirven para la revisión macro
     mensajes = []
     for s in senales:
+        if s.nivel == "medio":                                                         # noticia relevante: aviso corto con su impacto estimado en %
+            m = F.msg_noticia_relevante(s, ctx.ahora, ctx.cfg)
+            mensajes.append(m)
+            enviar_o_encolar(ctx, m)
+            continue
         botones = BOTONES_NOTICIA
         if s.sentido > 0 and not s.rec["tengo"]:
             botones = [[("✅ La compré", f"k:{s.ticker}")]] + BOTONES_NOTICIA

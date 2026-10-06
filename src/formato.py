@@ -568,6 +568,27 @@ def _precio_txt(p: dict[str, Any] | None, abierto: bool) -> str:
     return f"💹 {b('Precio')}: {mov} ({extra})." + it(" Precios con unos 15 min de retraso.")
 
 
+def _impacto_txt(s: Any) -> str:
+    """Impacto en porcentaje y con signo: + si la noticia empuja el precio hacia arriba, − si hacia abajo. Es lo que se movió en promedio la acción el día
+    de un anuncio de ese tipo (medido), no una promesa; al lado va lo que la acción lleva hoy de verdad."""
+    p = s.rec.get("pulso")
+    hoy = f" · hoy la acción va {b(pct(p['r_hoy'], 1, True))}" if p else ""
+    if s.impacto is None:
+        return f"🎯 {b('Impacto estimado')}: {'positivo (+)' if s.sentido > 0 else 'negativo (−)'}, sin una cifra medida para este tipo{hoy}"
+    return f"🎯 {b('Impacto estimado')}: {b(pct(s.impacto, 1, True))} {it('(lo que suele mover a la acción una noticia así)')}{hoy}"
+
+
+def msg_noticia_relevante(s: Any, ahora: dt.datetime, cfg: dict[str, Any]) -> str:
+    """Aviso corto de una noticia RELEVANTE (no llega a alto impacto): qué salió y su impacto estimado en %, con signo."""
+    from .noticias_bvc import ETIQUETA
+    n0 = s.items[0]
+    ahora_utc = ahora.astimezone(dt.timezone.utc)
+    tengo = " · la tienes" if s.rec.get("tengo") else ""
+    return "\n".join([f"📰 {b(s.emisor + ' (' + s.ticker + ')')} · {esc(ETIQUETA[s.cat])}{tengo}", f"«{esc(n0.titulo[:260])}»",
+                      it(f"{', '.join(esc(x) for x in s.fuentes[:2])} · {hace(n0.ts.isoformat(), ahora_utc)}"), _impacto_txt(s),
+                      it("Noticia informativa: por sí sola no es motivo para comprar ni vender.")])
+
+
 QUE_HACER_NOTICIA = {
     "COMPRAR": "Compra {t} ahora, con orden límite (nunca a mercado). En casos parecidos lo que vino después superó el costo.",
     "COMPRAR_MANANA": "Compra {t} en la próxima apertura ({cuando}, a las {hora}) con orden límite, si no abre ya disparada.",
@@ -589,7 +610,7 @@ def msg_noticia_bvc(s: Any, ahora: dt.datetime, cfg: dict[str, Any], sugerencia:
     fuentes = ", ".join(esc(x) for x in s.fuentes[:3])
     L = [f"🚨 {b('Noticia de alto impacto: ' + s.emisor)}  {it(f'{fecha(ahora)} {ahora:%H:%M}')}",
          f"📰 «{esc(n0.titulo[:300])}»", it(f"{fuentes} · {hace(n0.ts.isoformat(), ahora_utc)}"),
-         f"{'📈' if s.sentido > 0 else '📉'} {b('Tipo')}: {esc(ETIQUETA[s.cat])} · empuja {'al alza' if s.sentido > 0 else 'a la baja'} · impacto {n(s.puntaje * 10, 0)} de 10",
+         f"{'📈' if s.sentido > 0 else '📉'} {b('Tipo')}: {esc(ETIQUETA[s.cat])}", _impacto_txt(s),
          _precio_txt(rec.get("pulso"), C.mercado_abierto(ahora, cfg)), ""]
     cuando = fecha(rec["cuando"]) if rec.get("cuando") else ""
     L.append(f"👉 {b('Qué hacer')}: " + QUE_HACER_NOTICIA[rec["accion"]].format(t=esc(rec["ticker"]), cuando=cuando, hora=rec.get("hora", "")))
@@ -790,8 +811,9 @@ No importa si pones el precio en pesos o en dólares, o el total en vez del prec
 /estado — cómo vas en el concurso
 /detalle · /catalizadores · /informe · /actualizar — para mirar más a fondo
 
-<b>Los avisos que te mando solo</b>
-🚨 noticia de alto impacto de una empresa de la BVC (reviso cada minuto)
+<b>Los avisos que te mando solo</b> (¿no te llegan en este chat? escribe /avisos)
+🚨 noticia de alto impacto de una empresa de la BVC (reviso cada minuto), con su impacto estimado en % (+ sube, − baja)
+📰 noticia relevante (aviso corto, también con su impacto en %)
 🌍 movimiento o noticia macro fuerte, con las acciones beneficiadas y afectadas
 🔁 cambio sugerido (por ejemplo, salir de una acción que casi no se negocia en trii)
 🌅 resumen antes de abrir · 🔴 una acción tuya cae fuerte · 🌙 radar de las 19:30

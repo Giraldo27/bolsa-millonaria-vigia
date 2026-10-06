@@ -226,11 +226,13 @@ class Fuentes:
 
 
 ESTUDIO = {"n_minimo": 15, "horizontes": [1, 3, 5], "n_total": 1883,
-           "global": {"+1": {"n": 138, "pct_fuerte": 0.41, "h3": dict(n=138, media=-0.0062, mediana=-0.004, pct_pos=0.46, ic_lo=-0.0134, ic_hi=0.0001)},
+           "global": {"todos": {"n": 831, "abs_media": 0.0183},
+                      "+1": {"n": 138, "pct_fuerte": 0.41, "h3": dict(n=138, media=-0.0062, mediana=-0.004, pct_pos=0.46, ic_lo=-0.0134, ic_hi=0.0001)},
                       "-1": {"n": 118, "pct_fuerte": 0.27, "h3": dict(n=118, media=0.0087, mediana=0.004, pct_pos=0.56, ic_lo=0.0005, ic_hi=0.0184)}},
            "apertura": {"texto+": {"n": 299, "pct_fuerte": 0.09, "h3": dict(n=299, media=0.0019, mediana=0.0, pct_pos=0.52, ic_lo=-0.0017, ic_hi=0.0058)},
                         "sin_hueco": {"n": 584, "pct_fuerte": 0.09, "h3": dict(n=584, media=0.0012, mediana=0.0, pct_pos=0.49, ic_lo=-0.0017, ic_hi=0.0042)}},
-           "categorias": {"resultados|todos": {"n": 264, "pct_fuerte": 0.11, "h3": dict(n=264, media=0.0015, mediana=0.0, pct_pos=0.48, ic_lo=-0.0035, ic_hi=0.0066)}}}
+           "categorias": {"opa|todos": {"n": 22, "abs_media": 0.0369}, "legal|todos": {"n": 4, "abs_media": 0.09},
+                          "resultados|todos": {"n": 264, "pct_fuerte": 0.11, "abs_media": 0.0178, "h3": dict(n=264, media=0.0015, mediana=0.0, pct_pos=0.48, ic_lo=-0.0035, ic_hi=0.0066)}}}
 
 
 def test_el_pulso_mide_el_cambio_de_hoy_contra_lo_normal_sin_contar_la_barra_de_hoy():
@@ -351,15 +353,36 @@ def test_una_noticia_frecuente_solo_pasa_si_el_precio_la_confirma(mem):
     lec = con_base(mem)
     lec.items = [item("Utilidad neta de Ecopetrol creció 20 % en el trimestre")]
     f = Fuentes({"ECOPETROL": 0.001}, vol=5e7)
-    assert N.ronda(lec, mem, f, AHORA, CFG)[0] == []                                               # el precio ni se movió: no es de alto impacto
+    (m,), _ = N.ronda(lec, mem, f, AHORA, CFG)
+    assert m.nivel == "medio" and m.puntaje < CFG["noticias_bvc"]["umbral_alto"] and m.impacto == pytest.approx(0.0178)    # el precio ni se movió: relevante, no de alto impacto
     lec.items = [item("Ganancias de Bancolombia subieron 30 % y superan lo esperado")]
     (s,), _ = N.ronda(lec, mem, Fuentes({"PFBCOLOM": 0.035, "BCOLOMBIA": 0.03}, vol=5e7), AHORA, CFG)
-    assert s.cat == "resultados" and s.sentido == 1 and s.rec["accion"] == "NO_PERSEGUIR" and s.rec["reaccion"] == 1
+    assert s.nivel == "alto" and s.cat == "resultados" and s.sentido == 1 and s.rec["accion"] == "NO_PERSEGUIR" and s.rec["reaccion"] == 1
+    assert [x["nivel"] for x in mem.d["senales"]] == ["medio", "alto"] and mem.d["senales"][0]["impacto"] == pytest.approx(0.0178)
+
+
+def test_el_impacto_estimado_lleva_signo_y_usa_el_promedio_general_si_hay_pocos_casos():
+    assert N.impacto_estimado("resultados", 1, ESTUDIO) == pytest.approx(0.0178) and N.impacto_estimado("resultados", -1, ESTUDIO) == pytest.approx(-0.0178)
+    assert N.impacto_estimado("opa", 1, ESTUDIO) == pytest.approx(0.0369)
+    assert N.impacto_estimado("legal", -1, ESTUDIO) == pytest.approx(-0.0183)                        # sólo 4 casos medidos: se usa el promedio de todos los tipos
+    assert N.impacto_estimado("resultados", 1, {}) is None
+
+
+def test_las_noticias_relevantes_tienen_tope_por_hora(mem):
+    lec = con_base(mem)
+    tope = CFG["noticias_bvc"]["max_medias_hora"]
+    titulares = ["Utilidad neta de Ecopetrol creció 20 %", "Ganancias de Celsia subieron 15 %", "Utilidad de Promigas creció 9 %", "Ganancias de Terpel subieron 12 %",
+                 "Utilidad neta de Nutresa creció 7 %", "Ganancias de Corficolombiana subieron 30 %"]
+    total = 0
+    for k, t in enumerate(titulares):
+        lec.items = [item(t)]
+        total += len(N.ronda(lec, mem, Fuentes(vol=5e7), bog(2026, 10, 6, 10, k), CFG)[0])
+    assert total == tope and len(titulares) > tope
 
 
 def test_no_se_consultan_precios_de_lo_que_no_puede_llegar_al_umbral(mem):
     lec = con_base(mem)
-    lec.items = [item("Fitch afirma la calificación de Ecopetrol", origen="google"), item("El dólar cae tras decisión de la FED")]
+    lec.items = [item("Ecopetrol y Petrobras culminan campaña exploratoria"), item("El dólar cae tras decisión de la FED")]
     f = Fuentes()
     assert N.ronda(lec, mem, f, AHORA, CFG)[0] == [] and f.consultas == []
 
@@ -375,10 +398,11 @@ def test_lo_viejo_no_se_avisa_y_la_mala_noticia_de_lo_que_no_tienes_solo_si_es_m
     lec.items = [item("Gilinski lanza OPA por Grupo Éxito", minutos=60 * 5)]                        # de hace 5 horas: ya está en el precio
     assert N.ronda(lec, mem, Fuentes(vol=5e6), AHORA, CFG)[0] == []
     lec.items = [item("SIC sanciona a Celsia con multa millonaria")]
-    assert N.ronda(lec, mem, Fuentes({"CELSIA": -0.002}, vol=5e6), AHORA, CFG)[0] == []            # no la tienes y el precio no cae: no molesta
-    lec.items = [item("Superservicios impone sanción a Celsia y abre investigación")]
-    (s,), _ = N.ronda(lec, mem, Fuentes({"CELSIA": -0.002}, vol=5e6), bog(2026, 10, 6, 10, 5), CFG, tenidos={"CELSIA"})
-    assert s.sentido == -1 and s.rec["accion"] == "VIGILAR" and s.rec["tengo"]
+    (m,), _ = N.ronda(lec, mem, Fuentes({"CELSIA": -0.002}, vol=5e6), AHORA, CFG)
+    assert m.nivel == "medio" and m.sentido == -1 and m.impacto < 0                                # no la tienes y el precio no cae: informativa, no alarma
+    lec.items = [item("Superservicios impone sanción a Celsia y abre investigación", ahora=bog(2026, 10, 6, 11, 30))]
+    (s,), _ = N.ronda(lec, mem, Fuentes({"CELSIA": -0.002}, vol=5e6), bog(2026, 10, 6, 11, 30), CFG, tenidos={"CELSIA"})
+    assert s.nivel == "alto" and s.sentido == -1 and s.rec["accion"] == "VIGILAR" and s.rec["tengo"]
 
 
 def test_la_memoria_se_guarda_y_se_poda(mem, tmp_path):
@@ -400,13 +424,14 @@ def senal(accion_hoy=0.05, sentido=1, tengo=False, cat="resultados", titulo="Gan
     f = Fuentes({"ECOPETROL": accion_hoy}, vol=5e7)
     p = N.pulso(f, "ECOPETROL", CFG, AHORA)
     r = N.recomendar(cat, sentido, "ECOPETROL", p, AHORA, CFG, tengo, ESTUDIO, sentido)
-    return N.Senal("Ecopetrol", "ECOPETROL", cat, sentido, 0.77, [item(titulo), item(titulo + " hoy", fuente="La República")], r, AHORA.astimezone(UTC))
+    return N.Senal("Ecopetrol", "ECOPETROL", cat, sentido, 0.77, [item(titulo), item(titulo + " hoy", fuente="La República")], r, AHORA.astimezone(UTC),
+                   "alto", N.impacto_estimado(cat, sentido, ESTUDIO))
 
 
 def test_el_aviso_dice_que_paso_que_hacer_que_esperar_y_cuanto_tiempo():
     t = F.plano(F.msg_noticia_bvc(senal(), AHORA, CFG, {"ticker": "PFGRUPOARG", "mee": 0.062, "corte": dt.date(2026, 10, 9)}))
-    for esperado in ("Noticia de alto impacto: Ecopetrol", "Ganancias de Ecopetrol subieron 30 %", "Valora Analitik, La República", "resultados financieros", "empuja al alza",
-                     "impacto 8 de 10", "ECOPETROL sube 5,0% hoy", "el precio ya reaccionó", "Qué hacer: No compres ECOPETROL ahora: ya subió",
+    for esperado in ("Noticia de alto impacto: Ecopetrol", "Ganancias de Ecopetrol subieron 30 %", "Valora Analitik, La República", "resultados financieros",
+                     "Impacto estimado: +1,8%", "hoy la acción va +5,0%", "ECOPETROL sube 5,0% hoy", "el precio ya reaccionó", "Qué hacer: No compres ECOPETROL ahora: ya subió",
                      "Qué esperar: en 138 anuncios oficiales", "bajó en promedio 0,6% frente al mercado", "subió 46% de las veces",
                      "movieron fuerte la acción solo 11% de las veces", "Cuánto tiempo: Si aun así decides entrar", "máximo 3 sesiones (vende a más tardar el jue 08/10)",
                      "sal antes si cae 3%", "PFGRUPOARG", "±6,2% hasta el corte del vie 09/10", "/comprar", "no una garantía"):
@@ -420,9 +445,26 @@ def test_el_aviso_cambia_segun_el_caso():
     tengo = F.plano(F.msg_noticia_bvc(senal(0.05, tengo=True), AHORA, CFG))
     assert "Ya tienes ECOPETROL: mantenla" in tengo and "Cuánto tiempo" not in tengo
     mala = F.plano(F.msg_noticia_bvc(senal(-0.05, sentido=-1, tengo=True, cat="legal", titulo="SIC sanciona a Ecopetrol"), AHORA, CFG))
-    assert "empuja a la baja" in mala and "no vendas por pánico" in mala and "subió en promedio 0,9%" in mala and "/semaforo ECOPETROL" in mala
+    assert "Impacto estimado: -1,8%" in mala and "hoy la acción va -5,0%" in mala and "no vendas por pánico" in mala and "subió en promedio 0,9%" in mala and "/semaforo ECOPETROL" in mala
     cerrado = F.plano(F.msg_noticia_bvc(senal(0.0), bog(2026, 10, 6, 20), CFG))
     assert "el mercado está cerrado" in cerrado
+
+
+def test_el_aviso_corto_de_noticia_relevante_trae_el_impacto_en_porcentaje_con_signo():
+    s = senal(0.004)
+    s.nivel = "medio"
+    m = F.msg_noticia_relevante(s, AHORA, CFG)
+    t = F.plano(m)
+    for esperado in ("Ecopetrol (ECOPETROL) · resultados financieros", "Ganancias de Ecopetrol subieron 30 %", "Valora Analitik, La República", "Impacto estimado: +1,8%",
+                     "hoy la acción va +0,4%", "por sí sola no es motivo para comprar ni vender"):
+        assert esperado in t, esperado
+    neg = senal(-0.01, sentido=-1, tengo=True, cat="legal", titulo="SIC sanciona a Ecopetrol")
+    assert "Impacto estimado: -1,8%" in F.plano(F.msg_noticia_relevante(neg, AHORA, CFG)) and "la tienes" in F.plano(F.msg_noticia_relevante(neg, AHORA, CFG))
+    sin = senal(0.004)
+    sin.impacto = None
+    assert "positivo (+), sin una cifra medida" in F.plano(F.msg_noticia_relevante(sin, AHORA, CFG))
+    assert m.count("<b>") == m.count("</b>") and len(t) < 600
+    sin_jerga(m)
 
 
 def test_el_aviso_no_rompe_el_formato_con_titulares_raros():
@@ -454,6 +496,9 @@ def test_la_ronda_del_servicio_envia_el_aviso_con_botones_y_guarda_la_memoria(tm
     assert enviados[0][1][0] == [("✅ La compré", "k:EXITO")] and ("🛒 Qué comprar", "c:comprar") in enviados[0][1][1]
     assert json.loads((tmp_path / "noticias.json").read_text(encoding="utf-8"))["senales"][0]["ticker"] == "EXITO"
     assert S.tick_noticias(c, lec, mem) == [] and len(enviados) == 1
+    lec.items.append(item("Utilidad neta de Ecopetrol creció 20 % en el trimestre"))
+    (corto,) = S.tick_noticias(ctx(tmp_path, Fuentes({"ECOPETROL": 0.001}, vol=5e7), dry=False), lec, mem)
+    assert "Impacto estimado: +1,8%" in F.plano(corto) and "Noticia de alto impacto" not in corto and enviados[-1][1] is None    # relevante: aviso corto, sin botones
 
 
 def test_con_las_fuentes_bien_la_ronda_no_reescribe_el_estado(tmp_path, mem, monkeypatch):
