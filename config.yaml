@@ -401,6 +401,14 @@ validacion:
 # ======================================================================================================
 # VIGÍA DE NOTICIAS DE LA BVC (cada 2 minutos) Y PROCESO CONTINUO EN LA NUBE
 # ======================================================================================================
+# ----------------------------- ¿La noticia es buena o mala? (src/analisis_noticia.py) -----------------------------
+analisis_noticias:
+  umbral: 1.0                               # puntos mínimos (frases buenas menos malas; el titular pesa el doble) para concluir positiva o negativa
+  leer_articulo: true                       # si el titular y el resumen no alcanzan, se descarga el comienzo del artículo
+  usar_modelo: true                         # si existe ANTHROPIC_API_KEY, un modelo de lenguaje (Claude) decide el sentido y da la razón; sin clave no se usa
+  modelo: claude-haiku-4-5-20251001
+  timeout_s: 10
+
 # ----------------------------- Macroeconomía en vivo (src/macro.py) -----------------------------
 macro_vivo:
   activo: true
@@ -458,6 +466,8 @@ noticias_bvc:
   todas: true                               # true = se avisa TODA noticia nueva de una empresa de la BVC con liquidez buena en trii (pedido del usuario, 5-oct-2026);
                                             # false = sólo las relevantes y las de alto impacto
   max_otras_hora: 0                         # 0 = sin tope por hora de "otras noticias" (pedido del usuario). Lo único que se filtra son las repetidas
+  impacto_otra: 0.003                       # impacto que se le pone a una noticia que NO es un hecho del negocio (política, notas de color): 0,3 %. Fijado a mano:
+                                            # el día de un anuncio "sin tipo" la acción se mueve casi lo mismo que un día cualquiera, o sea que casi no pesa
   parecido_repetida: 0.5                    # un titular que comparte la mitad de sus palabras con otro ya avisado de la misma empresa (12 h) es la misma noticia en otro medio
   enfriamiento_emisor_min: 60               # no repetir avisos de la misma empresa y sentido antes de este tiempo
   timeout_s: 10

@@ -575,7 +575,7 @@ def _impacto_txt(s: Any) -> str:
     hoy = f" · hoy la acción va {b(pct(p['r_hoy'], 1, True))}" if p else ""
     if s.sentido == 0:
         cifra = ("±" + pct(abs(s.impacto), 1)) if s.impacto is not None else "sin cifra"
-        return f"🎯 {b('Impacto estimado')}: {b(cifra)} {it('(el titular no deja claro si la sube o la baja)')}{hoy}"
+        return f"🎯 {b('Impacto estimado')}: {b(cifra)} {it('(neutra: nada en la noticia la empuja claramente hacia arriba o hacia abajo)')}{hoy}"
     if s.impacto is None:
         return f"🎯 {b('Impacto estimado')}: {'positivo (+)' if s.sentido > 0 else 'negativo (−)'}, sin una cifra medida para este tipo{hoy}"
     return f"🎯 {b('Impacto estimado')}: {b(pct(s.impacto, 1, True))} {it('(lo que suele mover a la acción una noticia así)')}{hoy}"
@@ -596,6 +596,20 @@ def bloque_afectadas(afectadas: list[dict[str, Any]] | None) -> list[str]:
     return L
 
 
+def analisis_txt(s: Any) -> list[str]:
+    """Cuando el titular no decía si la noticia sube o baja la acción: qué concluyó el análisis, con cuánta seguridad y por qué."""
+    a = getattr(s, "analisis", None)
+    if not a:
+        return []
+    que = {1: "positiva (+) para la acción", -1: "negativa (−) para la acción", 0: "neutra para la acción"}[a["sentido"]]
+    seg = "alta" if a["confianza"] >= 0.7 else ("media" if a["confianza"] >= 0.4 else "baja")
+    como = {"modelo": "analizada por un modelo de lenguaje", "articulo": "por el texto del artículo", "texto": "por las frases del titular"}.get(a.get("metodo"), "análisis automático")
+    motivos = "; ".join(esc(m) for m in a.get("motivos", []) if m)
+    L = [f"🧠 {b('Análisis')}: {b(que)}" + (f" · seguridad {seg}" if a["sentido"] else "") + (f" · por: {motivos}" if motivos else "")]
+    L.append(it(f"({como}; es automático y puede equivocarse)"))
+    return L
+
+
 def msg_noticia_relevante(s: Any, ahora: dt.datetime, cfg: dict[str, Any], afectadas: list[dict[str, Any]] | None = None) -> str:
     """Aviso corto de una noticia RELEVANTE (no llega a alto impacto): qué salió y su impacto estimado en %, con signo."""
     from .noticias_bvc import ETIQUETA
@@ -603,7 +617,7 @@ def msg_noticia_relevante(s: Any, ahora: dt.datetime, cfg: dict[str, Any], afect
     ahora_utc = ahora.astimezone(dt.timezone.utc)
     tengo = " · la tienes" if s.rec.get("tengo") else ""
     return "\n".join([f"📰 {b(s.emisor + ' (' + s.ticker + ')')} · {esc(ETIQUETA[s.cat])}{tengo}", f"«{esc(n0.titulo[:260])}»",
-                      it(f"{', '.join(esc(x) for x in s.fuentes[:2])} · {hace(n0.ts.isoformat(), ahora_utc)}"), _impacto_txt(s), *bloque_afectadas(afectadas),
+                      it(f"{', '.join(esc(x) for x in s.fuentes[:2])} · {hace(n0.ts.isoformat(), ahora_utc)}"), *analisis_txt(s), _impacto_txt(s), *bloque_afectadas(afectadas),
                       _movio_txt(s.rec.get("pulso"), C.mercado_abierto(ahora, cfg)),
                       it("Noticia informativa: por sí sola no es motivo para comprar ni vender.")])
 
@@ -659,7 +673,7 @@ def msg_noticia_bvc(s: Any, ahora: dt.datetime, cfg: dict[str, Any], sugerencia:
     fuentes = ", ".join(esc(x) for x in s.fuentes[:3])
     L = [f"🚨 {b('Noticia de alto impacto: ' + s.emisor)}  {it(f'{fecha(ahora)} {ahora:%H:%M}')}",
          f"📰 «{esc(n0.titulo[:300])}»", it(f"{fuentes} · {hace(n0.ts.isoformat(), ahora_utc)}"),
-         f"{'📈' if s.sentido > 0 else '📉'} {b('Tipo')}: {esc(ETIQUETA[s.cat])}", _impacto_txt(s),
+         f"{'📈' if s.sentido > 0 else '📉'} {b('Tipo')}: {esc(ETIQUETA[s.cat])}", *analisis_txt(s), _impacto_txt(s),
          *bloque_afectadas(afectadas), _precio_txt(rec.get("pulso"), C.mercado_abierto(ahora, cfg)), ""]
     cuando = fecha(rec["cuando"]) if rec.get("cuando") else ""
     L.append(f"👉 {b('Qué hacer')}: " + QUE_HACER_NOTICIA[rec["accion"]].format(t=esc(rec["ticker"]), cuando=cuando, hora=rec.get("hora", "")))
@@ -728,6 +742,44 @@ def msg_noticias_bvc_recientes(senales: list[dict[str, Any]], salud: dict[str, b
         mal = [k for k, v in salud.items() if not v]
         L.append(it("Fuentes: " + (f"las {len(salud)} responden ✅" if not mal else "sin respuesta de " + ", ".join(mal) + " ⚠️")))
     L.append(it("Para una empresa: /noticias ECOPETROL"))
+    return "\n".join(L)
+
+
+def msg_noticias_actualizadas(filas: list[dict[str, Any]], salud: dict[str, bool], ahora: dt.datetime, horas: float, max_n: int = 18) -> str:
+    """/nuevas: resultado de consultar todas las fuentes en este momento. Lo oficial (Superfinanciera) va primero."""
+    from .noticias_bvc import ETIQUETA
+    ahora_utc = ahora.astimezone(dt.timezone.utc)
+    bien = [k for k, v in salud.items() if v]
+    mal = [k for k, v in salud.items() if not v]
+    sfc = "✅" if salud.get("Superfinanciera") else "❌ no respondió"
+    L = [f"🔄 {b('Noticias actualizadas')}  {it(f'{fecha(ahora)} {ahora:%H:%M}')}",
+         f"Fuentes consultadas ahora: {len(bien)} de {len(salud)} respondieron · Superfinanciera (oficial) {sfc}" + (f" · sin respuesta: {esc(', '.join(mal))}" if mal else "")]
+    if not filas:
+        L += ["", f"No hay noticias de empresas de la BVC (con liquidez buena en trii) en las últimas {horas:g} horas. Sigo revisando solo cada pocos segundos y te aviso."]
+        return "\n".join(L)
+
+    def una(x: dict[str, Any]) -> str:
+        if x["impacto"] is None:
+            imp = "sin cifra"
+        elif x["sentido"] == 0:
+            imp = "±" + pct(abs(x["impacto"]), 1) + " (neutra)"
+        else:
+            imp = pct(x["impacto"], 1, True)
+        marca = "🟢" if x["sentido"] > 0 else ("🔴" if x["sentido"] < 0 else "⚪")
+        return (f"{marca} {b(x['ticker'])}{' (la tienes)' if x['tengo'] else ''} · {b(imp)} · {esc(ETIQUETA[x['cat']])}\n"
+                f"   «{esc(x['titulo'][:150])}» {it('(' + esc(x['fuente']) + ', ' + hace(x['ts'].isoformat(), ahora_utc) + ')')}")
+    oficiales, prensa = [x for x in filas if x["oficial"]], [x for x in filas if not x["oficial"]]
+    if oficiales:
+        L += ["", f"🏛 {b('Información oficial (Superfinanciera)')}", *[una(x) for x in oficiales[: max_n // 2]]]
+    else:
+        L += ["", it(f"La Superfinanciera no tiene anuncios de estas empresas en las últimas {horas:g} horas.")]
+    if prensa:
+        L += ["", f"📰 {b('Prensa')}", *[una(x) for x in prensa[: max_n - min(len(oficiales), max_n // 2)]]]
+    resto = len(filas) - min(len(oficiales), max_n // 2) - min(len(prensa), max_n - min(len(oficiales), max_n // 2))
+    if resto > 0:
+        L.append(it(f"…y {resto} más antiguas."))
+    L += ["", it("El % es el impacto estimado (+ sube, − baja, ± neutra): lo que suele mover a la acción una noticia así. Solo empresas que se negocian bien en trii. "
+                 "Para qué comprar: /comprar")]
     return "\n".join(L)
 
 
@@ -869,7 +921,8 @@ No importa si pones el precio en pesos o en dólares, o el total en vez del prec
 
 <b>Lo que puedes preguntar</b> (o toca un botón de /menu)
 /comprar — qué acción de la BVC comprar, qué esperar y por cuánto tiempo (sólo las que se negocian bien en trii)
-/noticias — noticias fuertes de la BVC (o /noticias ECOPETROL)
+/nuevas — actualiza las noticias AHORA (Superfinanciera y prensa) y muestra lo último de cada empresa
+/noticias — las que ya te avisé (o /noticias ECOPETROL)
 /macro — petróleo, dólar, Wall Street, Brasil… y qué acciones ganan o pierden con eso
 /semaforo — ¿tus acciones están bien?
 /cartera — tus acciones con precios de hoy

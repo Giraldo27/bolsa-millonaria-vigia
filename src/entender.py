@@ -40,6 +40,7 @@ CONSULTAS = [
     ("comprar", re.compile(r"\b(que (accion )?(compro|comprar|comprarias)|en que (invierto|meto)|recomiend\w*|recomendacion(es)?|que hago con la plata)\b")),
     ("semaforo", re.compile(r"\b(semaforo|como (estan|esta|van) mis acciones)\b")),
     ("cartera", re.compile(r"\b(cartera|portafolio|mis acciones|que tengo)\b")),
+    ("nuevas", re.compile(r"\b(actualiza\w* (las )?noticias|noticias nuevas|nuevas noticias|busca\w* noticias|hay noticias|ultimas noticias|refresca\w*)\b")),
     ("macro", re.compile(r"\b(macro|macroeconomia|petroleo|dolar|brent|tasas? de interes|inflacion|wall street|fed)\b")),
     ("noticias", re.compile(r"\b(noticias?|que paso con|novedades)\b")),
     ("estado", re.compile(r"\b(como voy|estado|resumen)\b")),

@@ -411,7 +411,8 @@ def test_toda_noticia_de_una_empresa_liquida_de_la_bvc_se_avisa_aunque_no_sea_de
     f = Fuentes(vol=5e7)
     (s,), _ = N.ronda(lec, mem, f, AHORA, CFG)
     assert (s.emisor, s.ticker, s.cat, s.nivel, s.sentido) == ("Ecopetrol", "ECOPETROL", "otra", "bajo", 0) and f.consultas == ["ECOPETROL"]
-    assert s.impacto == pytest.approx(0.0183) and mem.d["senales"][-1]["nivel"] == "bajo"            # sin sentido claro: la magnitud típica, se muestra como ±
+    assert s.impacto == pytest.approx(0.003) and mem.d["senales"][-1]["nivel"] == "bajo"             # no es un hecho del negocio: impacto pequeño, se muestra como ±0,3 %
+    assert N.impacto_estimado("otra", -1, ESTUDIO, CFG) == pytest.approx(-0.003)
     lec.items = [item("Bancolombia sube sus utilidades y mejora su eficiencia operativa")]
     (b,), _ = N.ronda(lec, mem, Fuentes(vol=5e7), AHORA, CFG)
     assert b.sentido == 1 and b.impacto > 0
@@ -423,7 +424,8 @@ def test_una_noticia_sin_tipo_no_se_vuelve_fuerte_ni_toma_sentido_porque_la_acci
     lec.items = [item("Presidente de la junta de Ecopetrol cuestiona a un medio y se aparta de decisiones", fuente="La FM"),
                  item("Presidente de la junta de Ecopetrol cuestiona a un medio de comunicación", fuente="Pulzo")]
     (s,), _ = N.ronda(lec, mem, Fuentes({"ECOPETROL": 0.05}, vol=5e7), AHORA, CFG)
-    assert s.nivel == "bajo" and s.sentido == 0 and s.puntaje < CFG["noticias_bvc"]["umbral_medio"]
+    assert s.nivel == "bajo" and s.sentido == -1 and s.puntaje < CFG["noticias_bvc"]["umbral_medio"]     # el sentido sale del TEXTO ("cuestiona"), no de que la acción suba 5 %
+    assert s.analisis["sentido"] == -1 and "críticas o conflicto" in s.analisis["motivos"]
 
 
 def test_la_misma_noticia_en_otro_medio_no_se_repite(mem):
@@ -465,7 +467,7 @@ def test_noticia_oficial_sin_sentido_claro_sale_como_informativa_con_mas_menos(m
     (s,), _ = N.ronda(lec, mem, Fuentes({"ECOPETROL": 0.002}, vol=5e7), AHORA, CFG)
     assert s.nivel == "bajo" and s.sentido == 0                                                     # no se inventa una dirección
     t = F.plano(F.msg_noticia_relevante(s, AHORA, CFG, __import__("src.macro", fromlist=["x"]).afectadas_por_noticia("ECOPETROL", s.impacto, 0, {}, CFG, set())))
-    assert "Impacto estimado: ±" in t and "no deja claro si la sube o la baja" in t and "⚪ ECOPETROL ±" in t
+    assert "Impacto estimado: ±" in t and "neutra: nada en la noticia la empuja" in t and "⚪ ECOPETROL ±" in t and "Análisis: neutra para la acción" in t
 
 
 def test_lo_viejo_no_se_avisa_y_la_mala_noticia_de_lo_que_no_tienes_solo_si_es_muy_fuerte(mem):

@@ -246,6 +246,16 @@ def es_repetida(titulo: str, previos: list[list[str]], umbral: float) -> bool:
     return False
 
 
+class _SinRed:
+    """Sustituto de la conexión cuando el lector no tiene una (pruebas): no se descarga ningún artículo."""
+    def get(self, *a: Any, **k: Any) -> Any:
+        raise RuntimeError("sin red")
+    post = get
+
+
+_SIN_RED = _SinRed()
+
+
 def lleno(lista: list[Any], tope: int | None) -> bool:
     """¿Se alcanzó el tope? Un tope de 0 (o vacío) significa SIN tope."""
     return bool(tope) and len(lista) >= tope
@@ -352,22 +362,25 @@ class Lector:
         r = self._get("https://news.google.com/rss/search", {"q": f"{consulta} when:{g['cuando']}", "hl": "es-419", "gl": "CO", "ceid": "CO:es-419"}, condicional=False)
         return items_de_rss(r.content.decode("utf-8", "replace"), "Google News", "google")
 
-    def todo(self, ahora: dt.datetime) -> tuple[list[Item], dict[str, bool]]:
-        """Todas las fuentes activas de esta ronda. Devuelve (noticias, salud por fuente). Una fuente que falla 3 veces seguidas descansa unas rondas."""
+    def todo(self, ahora: dt.datetime, completo: bool = False) -> tuple[list[Item], dict[str, bool]]:
+        """Todas las fuentes activas de esta ronda. Devuelve (noticias, salud por fuente). Una fuente que falla 3 veces seguidas descansa unas rondas.
+        `completo=True` (comando /nuevas): TODAS las fuentes y TODAS las búsquedas de Google de una vez, sin saltarse ninguna."""
         f = self.n["fuentes"]
         tareas: list[tuple[str, Callable[[], list[Item]]]] = []
         if f["sfc"]["activo"]:
             tareas.append(("Superfinanciera", lambda: self.sfc(ahora)))
         for x in f["rss"]:
-            if self.ronda % max(int(x.get("cada_rondas", 1)), 1) == 0:
+            if completo or self.ronda % max(int(x.get("cada_rondas", 1)), 1) == 0:
                 tareas.append((x["nombre"], lambda x=x: self.rss(x)))
         g = f["google"]
         cada = max(int(g.get("cada_rondas", 1)), 1)
-        if g["activo"] and g["consultas"] and self.ronda % cada == 0:
+        if g["activo"] and g["consultas"] and completo:
+            tareas.append(("Google News", lambda: [i for q in g["consultas"] for i in self.google(q)]))
+        elif g["activo"] and g["consultas"] and self.ronda % cada == 0:
             q = g["consultas"][(self.ronda // cada) % len(g["consultas"])]
             tareas.append(("Google News", lambda: self.google(q)))
         self.ronda += 1
-        activas = [(n, fn) for n, fn in tareas if self.fallos.get(n, 0) < 3 or self.ronda % 10 == 0]
+        activas = [(n, fn) for n, fn in tareas if completo or self.fallos.get(n, 0) < 3 or self.ronda % 10 == 0]
 
         def una(par: tuple[str, Callable[[], list[Item]]]) -> tuple[str, list[Item] | None]:
             try:
@@ -477,9 +490,11 @@ def evidencia(estudio: dict[str, Any], grupo: str, clave: str, sesiones: int) ->
     return dict(fila[f"h{h}"], h=h, casos=fila["n"], grupo=grupo, clave=clave, pct_fuerte=fila.get("pct_fuerte"))
 
 
-def impacto_estimado(cat: str, sentido: int, estudio: dict[str, Any]) -> float | None:
+def impacto_estimado(cat: str, sentido: int, estudio: dict[str, Any], cfg: dict[str, Any] | None = None) -> float | None:
     """Impacto estimado sobre el precio, con signo: lo que se movió en promedio la acción (frente al mercado) el día de un anuncio de ESE tipo, en el
     sentido de la noticia. Si ese tipo tiene pocos casos medidos, se usa el promedio de todos los tipos. None sin estudio."""
+    if cat == "otra":                                                                  # no es un hecho del negocio: impacto pequeño (ver noticias_bvc.impacto_otra)
+        return sentido * float(((cfg or {}).get("noticias_bvc") or {}).get("impacto_otra", 0.003))
     fila = (estudio.get("categorias") or {}).get(f"{cat}|todos") or {}
     if fila.get("n", 0) < estudio.get("n_minimo", 15) or not fila.get("abs_media"):
         fila = (estudio.get("global") or {}).get("todos") or {}
@@ -540,6 +555,7 @@ class Senal:
     ts: dt.datetime
     nivel: str = "alto"                     # alto (aviso completo con recomendación) | medio (relevante, aviso corto) | bajo (otra noticia de la empresa, aviso corto)
     impacto: float | None = None            # impacto estimado sobre el precio, con signo (+0,012 = +1,2 %). Si sentido == 0 es la magnitud (se muestra como ±)
+    analisis: dict[str, Any] | None = None  # cuando el titular no decía el sentido: resultado de analisis_noticia.analizar (sentido, confianza, motivos, metodo)
 
     @property
     def fuentes(self) -> list[str]:
@@ -600,6 +616,12 @@ def ronda(lector: Lector, mem: Memoria, f: Any, ahora: dt.datetime, cfg: dict[st
         tengo = bool(set(e.tickers) & tenidos)
         if not tengo and (p is None or p["liquidez_mm"] < liq_min):
             continue                                                                   # sin liquidez buena en trii (o sin precio para comprobarla): no se avisa, salvo que la tengas
+        analisis = None
+        if c.sentido == 0:                                                             # el titular no dice si sube o baja: se analiza el texto (y el artículo, y el modelo si hay clave)
+            from .analisis_noticia import analizar
+            mejor = sorted(g["items"], key=lambda i: (i.origen != "sfc", -i.ts.timestamp()))[0]
+            analisis = analizar(e.nombre, mejor.titulo, mejor.resumen, mejor.url, cfg, getattr(lector, "http", _SIN_RED), getattr(lector, "env", {}))
+            c = Clasif(c.cat, analisis["sentido"], c.peso)
         if cat == "otra":                                                              # sin tipo reconocido: el precio de hoy NO le pone sentido ni la vuelve "fuerte"
             puntaje, sentido = min(puntuar(c, origenes, n_f, None, cfg)[0], n["umbral_medio"] - 0.01), c.sentido      # (que la acción suba hoy no prueba que sea por este titular)
         else:
@@ -631,9 +653,9 @@ def ronda(lector: Lector, mem: Memoria, f: Any, ahora: dt.datetime, cfg: dict[st
                     continue
                 nivel = "bajo"                                                         # ya hubo un aviso fuerte de esta empresa hace poco: esta sale como "otra noticia"
         rec = recomendar(cat, sentido or 1, ticker, p, ahora, cfg, tengo, estudio, c.sentido)
-        base_imp = impacto_estimado(cat, 1, estudio)
+        base_imp = impacto_estimado(cat, 1, estudio, cfg)
         senales.append(Senal(nombre, ticker, cat, sentido, puntaje, items, rec, ahora_utc, nivel,
-                             (sentido * base_imp if sentido else base_imp) if base_imp is not None else None))
+                             (sentido * base_imp if sentido else base_imp) if base_imp is not None else None, analisis))
     senales.sort(key=lambda s: -s.puntaje)                                              # las más importantes salen primero
     if n["max_por_ronda"]:
         senales = senales[: n["max_por_ronda"]]

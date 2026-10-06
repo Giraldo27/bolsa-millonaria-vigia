@@ -451,6 +451,48 @@ def resp_noticias(ctx: Contexto, ticker: str | None = None) -> str:
     return F.msg_noticias(t, n, titulares_puntuados(n or [], ctx.cfg, ctx.puntuador), ctx.cfg["bot"]["titulares_max"], ctx.f.traducir)
 
 
+def buscar_noticias(ctx: Contexto, horas: float = 12, lector: Any = None) -> tuple[list[dict[str, Any]], dict[str, bool]]:
+    """Consulta AHORA todas las fuentes (la Superfinanciera primero) y devuelve las noticias de las últimas `horas` de empresas de la BVC con liquidez buena
+    en trii (o que tengas), ya analizadas: tipo, sentido, impacto estimado en %. No toca la memoria del vigía ni manda avisos: es para mirar."""
+    from . import noticias_bvc as N
+    from .analisis_noticia import analizar
+    lector = lector or N.Lector(ctx.cfg)
+    items, salud = lector.todo(ctx.ahora, completo=True)
+    est = leer_estado(ctx)
+    emisores = N.emisores_cfg(ctx.cfg)
+    estudio = N.cargar_estudio()
+    ahora_utc = ctx.ahora.astimezone(dt.timezone.utc)
+    limite = ahora_utc - dt.timedelta(hours=horas)
+    liquidas = acciones_liquidas(ctx, {t for e in emisores for t in e.tickers})
+    solo_frases = {**ctx.cfg, "analisis_noticias": {**ctx.cfg.get("analisis_noticias", {}), "leer_articulo": False, "usar_modelo": False}}      # rápido: sin descargar artículos
+    filas: list[dict[str, Any]] = []
+    vistos: dict[str, list[list[str]]] = {}
+    for it in sorted(items, key=lambda i: (i.origen != "sfc", -i.ts.timestamp())):                      # lo oficial primero: si un medio repite el hecho, queda el oficial
+        if it.ts < limite or it.ts > ahora_utc + dt.timedelta(minutes=10):
+            continue
+        for e in N.emisores_de(it, emisores):
+            ticker = next((t for t in e.tickers if t in est.tenidos()), None) or next((t for t in e.tickers if t in liquidas), None)
+            if ticker is None:
+                continue                                                               # sin liquidez buena en trii: no se muestra
+            if N.es_repetida(it.titulo, vistos.get(e.nombre, []), ctx.cfg["noticias_bvc"]["parecido_repetida"]):
+                continue
+            vistos.setdefault(e.nombre, []).append(sorted(N.palabras_clave(it.titulo)))
+            c = N.clasificar(N.texto_para_clasificar(it), ctx.cfg)
+            cat, sentido = (c.cat, c.sentido) if c else ("otra", 0)
+            if sentido == 0:
+                sentido = analizar(e.nombre, it.titulo, it.resumen, "", solo_frases, None, {})["sentido"]
+            base = N.impacto_estimado(cat, 1, estudio, ctx.cfg)
+            filas.append(dict(ts=it.ts, emisor=e.nombre, ticker=ticker, titulo=it.titulo, fuente=it.fuente, oficial=it.origen == "sfc", cat=cat, sentido=sentido,
+                              impacto=(sentido * base if sentido else base) if base is not None else None, tengo=ticker in est.tenidos()))
+    return sorted(filas, key=lambda x: -x["ts"].timestamp()), salud
+
+
+def resp_nuevas(ctx: Contexto) -> str:
+    """/nuevas: actualiza las noticias ahora mismo y muestra lo último de cada empresa de la BVC."""
+    filas, salud = buscar_noticias(ctx)
+    return F.msg_noticias_actualizadas(filas, salud, ctx.ahora, 12)
+
+
 def resp_catalizadores(ctx: Contexto) -> str:
     cats = catalizadores(ctx.f, ctx.cfg, ctx.ahora, tickers_con_reporte(ctx.cfg), ctx.cfg["radar"]["dias_catalizadores"])
     return F.msg_catalizadores(cats, ctx.cfg["radar"]["dias_catalizadores"])
