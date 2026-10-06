@@ -1,7 +1,7 @@
 """Vigía: UN solo proceso que hace todo y no depende del "cron" de GitHub.
 
   · contesta el chat de Telegram al instante (comandos, texto libre y botones);
-  · cada minuto revisa las noticias de la BVC y avisa las de alto impacto (src/noticias_bvc.py);
+  · cada 15 segundos revisa las noticias de la BVC y avisa todas las de empresas líquidas (src/noticias_bvc.py);
   · cada 2 minutos revisa la macro (petróleo, dólar, Wall Street, Brasil, oro y titulares macro) y dice qué acciones ganan y cuáles pierden (src/macro.py);
   · cada media hora revisa si conviene un cambio "esta por esta" (src/cambios.py) y, antes de abrir, manda el resumen de la mañana;
   · cada 15 minutos, en horario de bolsa, corre el monitor (semáforo de tu cartera);
@@ -75,6 +75,14 @@ class Vigia:
         if msgs:
             log.info("noticias: %d aviso(s) enviados", len(msgs))
             self.guardar(True)                                                          # lo ya avisado se respalda enseguida: si la máquina muere, no se repite el aviso
+
+    def calentar(self) -> None:
+        """Deja calculado lo pesado (liquidez de cada acción, relaciones entre empresas del mismo grupo) para que un aviso importante salga sin esperar."""
+        from src import macro as M
+        from src.construir import universo_candidatos
+        ctx = S.crear_contexto()
+        vecinos = M.contagio(ctx.f, ctx.cfg, universo_candidatos(ctx.cfg))
+        S.acciones_liquidas(ctx, {t for v in vecinos.values() for t in v})
 
     def macro(self) -> None:
         """Factores macro y titulares macro (reutiliza los titulares que acaba de leer la ronda de noticias)."""
@@ -206,6 +214,7 @@ class Vigia:
             await app.updater.start_polling(allowed_updates=bot.ACTUALIZACIONES, drop_pending_updates=False, bootstrap_retries=-1)
             log.info("vigía encendido: chat al instante, noticias cada %s s, monitor cada %s min", n["cada_s"], self.v["monitor_cada_min"])
             tareas = [asyncio.create_task(self.bucle("bienvenida", 10 ** 9, self.bienvenida)),
+                      asyncio.create_task(self.bucle("calentar", 6 * 3600, self.calentar, 15)),
                       asyncio.create_task(self.bucle("guardar", 30, self.guardar, 45)),
                       asyncio.create_task(self.bucle("monitor", self.v["monitor_cada_min"] * 60, self.monitor, 20)),
                       asyncio.create_task(self.bucle("radar", 120, self.radar, 30)),

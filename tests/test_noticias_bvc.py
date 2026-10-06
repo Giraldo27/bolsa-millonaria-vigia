@@ -101,9 +101,10 @@ def test_una_fuente_caida_no_tumba_a_las_demas_y_se_usan_peticiones_condicionale
 def test_google_rota_las_busquedas_una_por_ronda():
     http = HttpFalso({"google": "<rss></rss>"})
     lec = N.Lector(CFG, http=http, env={})
-    for _ in range(3):
+    cada = CFG["noticias_bvc"]["fuentes"]["google"]["cada_rondas"]
+    for _ in range(2 * cada):
         lec.todo(AHORA)
-    assert len([u for u, _ in http.pedidas if "google" in u]) == 3 and lec.ronda == 3
+    assert len([u for u, _ in http.pedidas if "google" in u]) == 2 and lec.ronda == 2 * cada         # una búsqueda cada `cada_rondas` rondas (Google bloquea si se abusa)
 
 
 # =============================== ¿de qué empresa habla? ===============================
@@ -368,15 +369,28 @@ def test_el_impacto_estimado_lleva_signo_y_usa_el_promedio_general_si_hay_pocos_
     assert N.impacto_estimado("resultados", 1, {}) is None
 
 
-def test_las_noticias_relevantes_tienen_tope_por_hora(mem):
+def test_por_defecto_no_hay_topes_todas_las_noticias_salen(mem):
+    """Pedido del usuario (5-oct-2026): sin topes por hora ni por ronda."""
+    n = CFG["noticias_bvc"]
+    assert n["max_por_ronda"] == 0 and n["max_otras_hora"] == 0 and n["max_medias_hora"] == 0 and not N.lleno([1] * 999, 0) and N.lleno([1, 2], 2)
     lec = con_base(mem)
-    tope = CFG["noticias_bvc"]["max_medias_hora"]
+    lec.items = [item(f"Utilidad neta de {e} creció 2{k} %") for k, e in enumerate(("Ecopetrol", "Celsia", "Promigas", "Terpel", "Nutresa", "Corficolombiana", "Bancolombia", "Grupo Sura"))]
+    s, _ = N.ronda(lec, mem, Fuentes(vol=5e7), AHORA, CFG)
+    assert len(s) == 8 and all(x.nivel == "medio" for x in s)                                        # ocho de una vez, ninguna se queda por fuera
+
+
+def test_si_se_configura_un_tope_las_relevantes_que_lo_pasan_salen_como_otras(mem):
+    import copy
+    cfg = copy.deepcopy(CFG)
+    cfg["noticias_bvc"]["max_medias_hora"] = 4
+    lec = con_base(mem)
+    tope = 4
     titulares = ["Utilidad neta de Ecopetrol creció 20 %", "Ganancias de Celsia subieron 15 %", "Utilidad de Promigas creció 9 %", "Ganancias de Terpel subieron 12 %",
                  "Utilidad neta de Nutresa creció 7 %", "Ganancias de Corficolombiana subieron 30 %"]
     total = 0
     for k, t in enumerate(titulares):
         lec.items = [item(t)]
-        total += len(N.ronda(lec, mem, Fuentes(vol=5e7), bog(2026, 10, 6, 10, k), CFG)[0])
+        total += len(N.ronda(lec, mem, Fuentes(vol=5e7), bog(2026, 10, 6, 10, k), cfg)[0])
     assert total == len(titulares) > tope                                                          # ninguna se pierde…
     assert [x["nivel"] for x in mem.d["senales"]] == ["medio"] * tope + ["bajo"] * (len(titulares) - tope)   # …pero pasado el tope salen como "otra noticia"
 
@@ -568,11 +582,15 @@ def test_si_todas_las_fuentes_caen_varias_rondas_se_avisa_una_vez_y_luego_la_rec
     monkeypatch.setattr(S, "enviar", lambda texto, cfg, **k: enviados.append(texto) or True)
     lec = con_base(mem)
     lec.salud = {"Superfinanciera": False, "Valora Analitik": False}
-    for k in range(6):
-        S.tick_noticias(ctx(tmp_path, dry=False, ahora=bog(2026, 10, 6, 10, 2 * k)), lec, mem)
-    assert len(enviados) == 1 and "Falló una fuente de datos: las noticias de la BVC" in F.plano(enviados[0]) and "cada 2 minutos" in enviados[0]
+    rondas = max(5, int(600 / CFG["noticias_bvc"]["cada_s"]))                                        # unos 10 minutos seguidos sin ninguna fuente
+    for k in range(rondas - 1):
+        S.tick_noticias(ctx(tmp_path, dry=False, ahora=AHORA + dt.timedelta(seconds=15 * k)), lec, mem)
+    assert enviados == []                                                                            # un tropiezo corto no alarma
+    for k in range(rondas - 1, rondas + 3):
+        S.tick_noticias(ctx(tmp_path, dry=False, ahora=AHORA + dt.timedelta(seconds=15 * k)), lec, mem)
+    assert len(enviados) == 1 and "Falló una fuente de datos: las noticias de la BVC" in F.plano(enviados[0]) and "cada pocos segundos" in enviados[0]
     lec.salud = {"Superfinanciera": True, "Valora Analitik": False}
-    S.tick_noticias(ctx(tmp_path, dry=False, ahora=bog(2026, 10, 6, 10, 14)), lec, mem)
+    S.tick_noticias(ctx(tmp_path, dry=False, ahora=bog(2026, 10, 6, 10, 30)), lec, mem)
     assert len(enviados) == 2 and "Ya funciona de nuevo" in F.plano(enviados[1])
 
 
@@ -672,3 +690,57 @@ def test_el_estudio_real_guardado_tiene_la_forma_que_usa_el_bot():
     assert t["n_total"] > 500 and {"+1", "-1"} <= set(t["global"]) and {"texto+", "sin_hueco"} <= set(t["apertura"])
     ev = N.evidencia(t, "global", "+1", 3)
     assert ev and {"media", "pct_pos", "ic_lo", "ic_hi", "h", "casos"} <= set(ev)
+
+
+# =============================== ¿la noticia ya movió el precio? ===============================
+def test_el_aviso_corto_dice_si_la_noticia_ya_movio_el_precio():
+    quieto = senal(0.004)
+    quieto.nivel = "medio"
+    assert "¿Ya movió el precio? Todavía no (ECOPETROL va +0,4% hoy, dentro de lo normal). Si la mueve, te aviso." in F.plano(F.msg_noticia_relevante(quieto, AHORA, CFG))
+    movio = senal(0.05)
+    movio.nivel = "medio"
+    assert "¿Ya movió el precio? Sí: ECOPETROL va +5,0% hoy" in F.plano(F.msg_noticia_relevante(movio, AHORA, CFG))
+    assert "La bolsa está cerrada: se verá en la próxima apertura" in F.plano(F.msg_noticia_relevante(quieto, bog(2026, 10, 6, 20), CFG))
+
+
+def test_si_despues_del_aviso_el_precio_se_mueve_fuerte_llega_un_segundo_aviso_una_sola_vez(mem):
+    lec = con_base(mem)
+    lec.items = [item("Utilidad neta de Ecopetrol creció 20 % en el trimestre")]
+    N.ronda(lec, mem, Fuentes({"ECOPETROL": 0.001}, vol=5e7), AHORA, CFG)
+    (seg,) = mem.d["seguimiento"]
+    assert seg["ticker"] == "ECOPETROL" and seg["ref"] == pytest.approx(1001.0)
+    despues = bog(2026, 10, 6, 10, 40)
+    assert N.movimientos_tras_noticia(mem, Fuentes({"ECOPETROL": 0.004}, vol=5e7), despues, CFG) == []      # +0,3 % desde el aviso: nada todavía
+    (x,) = N.movimientos_tras_noticia(mem, Fuentes({"ECOPETROL": 0.035}, vol=5e7), despues, CFG)
+    assert x["movimiento"] == pytest.approx(1035 / 1001 - 1) and x["minutos"] == pytest.approx(40) and mem.d["seguimiento"] == []
+    assert N.movimientos_tras_noticia(mem, Fuentes({"ECOPETROL": 0.06}, vol=5e7), despues, CFG) == []        # ya se avisó: no se repite
+    t = F.plano(F.msg_noticia_mueve_precio(x, despues))
+    for esperado in ("La noticia ya mueve el precio: ECOPETROL +3,4%", "Utilidad neta de Ecopetrol creció 20 %", "subió 3,4% desde que te avisé (hace 40 min)", "hoy va +3,5%", "no la persigas"):
+        assert esperado in t, esperado
+    cae = dict(x, movimiento=-0.03, tengo=True)
+    assert "cayó 3,0% desde que te avisé" in F.plano(F.msg_noticia_mueve_precio(cae, despues)) and "no vendas por pánico" in F.plano(F.msg_noticia_mueve_precio(cae, despues))
+
+
+def test_el_seguimiento_espera_a_que_abra_la_bolsa_y_caduca(mem):
+    lec = con_base(mem)
+    noche = bog(2026, 10, 6, 20, 0)
+    lec.items = [item("Gilinski lanza OPA por el 20 % de Grupo Éxito", ahora=noche)]
+    N.ronda(lec, mem, Fuentes(vol=5e6), noche, CFG)
+    assert len(mem.d["seguimiento"]) == 1
+    assert N.movimientos_tras_noticia(mem, Fuentes({"EXITO": 0.08}, vol=5e6), bog(2026, 10, 6, 23), CFG) == [] and len(mem.d["seguimiento"]) == 1    # de noche no se mide
+    (x,) = N.movimientos_tras_noticia(mem, Fuentes({"EXITO": 0.08}, vol=5e6), bog(2026, 10, 7, 8, 45), CFG)                                       # a la mañana siguiente sí
+    assert x["ticker"] == "EXITO" and x["movimiento"] > 0.07
+    lec.items = [item("Utilidad neta de Celsia creció 20 %", ahora=bog(2026, 10, 7, 9, 0))]
+    N.ronda(lec, mem, Fuentes(vol=5e6), bog(2026, 10, 7, 9, 0), CFG)
+    assert N.movimientos_tras_noticia(mem, Fuentes(vol=5e6), bog(2026, 10, 7, 9, 1), CFG) == [] and len(mem.d["seguimiento"]) == 1                 # se sigue vigilando
+    assert N.movimientos_tras_noticia(mem, Fuentes(vol=5e6), bog(2026, 10, 7, 14, 30), CFG) == [] and mem.d["seguimiento"] == []                   # pasaron más de 4 horas sin moverse: se olvida
+
+
+def test_la_ronda_del_servicio_manda_el_segundo_aviso(tmp_path, mem, monkeypatch):
+    enviados = []
+    monkeypatch.setattr(S, "enviar", lambda texto, cfg, botones=None, **k: enviados.append(texto) or True)
+    lec = con_base(mem)
+    lec.items = [item("Utilidad neta de Ecopetrol creció 20 % en el trimestre")]
+    S.tick_noticias(ctx(tmp_path, Fuentes({"ECOPETROL": 0.001}, vol=5e7), dry=False), lec, mem)
+    out = S.tick_noticias(ctx(tmp_path, Fuentes({"ECOPETROL": 0.04}, vol=5e7), dry=False, ahora=bog(2026, 10, 6, 10, 30)), lec, mem)
+    assert len(out) == 1 and "La noticia ya mueve el precio: ECOPETROL +3,9%" in F.plano(out[0]) and len(enviados) == 2

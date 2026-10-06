@@ -446,16 +446,18 @@ vigia:                                      # proceso continuo (vigia.py): conte
 
 noticias_bvc:
   activo: true
-  cada_s: 60                                # una ronda cada minuto, las 24 horas (pedido del usuario; las empresas publican hechos relevantes también fuera del horario)
+  cada_s: 15                                # una ronda cada 15 segundos, las 24 horas (pedido del usuario: avisar cuanto antes). No se puede en "milisegundos":
+                                            # las fuentes no avisan, hay que ir a preguntarles; 15 s es lo más seguido que se les puede consultar sin abusar
   ventana_min: 180                          # sólo cuentan noticias publicadas en las últimas 3 horas (lo más viejo ya está en el precio)
   umbral_alto: 0.60                         # puntaje mínimo (0–1) para considerarla de ALTO impacto y avisarte
   umbral_negativa_sin_tener: 0.80           # mala noticia de una acción que NO tienes: sólo es de ALTO impacto si es muy fuerte (si no, sale como relevante)
   umbral_medio: 0.40                        # entre este valor y umbral_alto: noticia RELEVANTE (aviso corto, con su impacto estimado en %)
-  max_medias_hora: 4                        # tope de avisos de noticias relevantes por hora (las de alto impacto no tienen tope)
-  max_por_ronda: 5
+  max_medias_hora: 0                        # 0 = sin tope por hora de noticias relevantes
+  max_por_ronda: 0                          # 0 = sin tope (pedido del usuario, 5-oct-2026)
+  seguimiento_min: 240                      # tras avisar una noticia se vigila el precio este tiempo: si se mueve fuerte, llega un segundo aviso ("ya mueve el precio")
   todas: true                               # true = se avisa TODA noticia nueva de una empresa de la BVC con liquidez buena en trii (pedido del usuario, 5-oct-2026);
                                             # false = sólo las relevantes y las de alto impacto
-  max_otras_hora: 12                        # tope por hora de avisos de "otras noticias" (las que no llegan a relevantes); evita una avalancha
+  max_otras_hora: 0                         # 0 = sin tope por hora de "otras noticias" (pedido del usuario). Lo único que se filtra son las repetidas
   parecido_repetida: 0.5                    # un titular que comparte la mitad de sus palabras con otro ya avisado de la misma empresa (12 h) es la misma noticia en otro medio
   enfriamiento_emisor_min: 60               # no repetir avisos de la misma empresa y sentido antes de este tiempo
   timeout_s: 10
@@ -494,8 +496,9 @@ noticias_bvc:
       - {nombre: "Semana", url: "https://www.semana.com/arc/outboundfeeds/rss/category/economia/?outputType=xml"}
       - {nombre: "El Tiempo", url: "https://www.eltiempo.com/rss/economia.xml"}
       - {nombre: "El Colombiano", url: "https://www.elcolombiano.com/rss/negocios.xml"}
-    google:                                 # una búsqueda por ronda, rotando (cada grupo se revisa cada 6 minutos)
+    google:                                 # una búsqueda cada `cada_rondas` rondas, rotando (Google bloquea si se le consulta muy seguido)
       activo: true
+      cada_rondas: 4
       cuando: "3h"
       consultas:
         - 'Ecopetrol OR Bancolombia OR "Grupo Cibest" OR "Grupo Argos" OR "Cementos Argos" OR "Grupo Sura"'

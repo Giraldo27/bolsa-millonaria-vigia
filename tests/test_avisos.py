@@ -49,3 +49,46 @@ def test_el_bot_tiene_los_comandos_avisos_y_silencio_y_la_ayuda_los_menciona():
     app = bot.construir_app("123456:ABCDEF-token-falso-para-pruebas", int(PRINCIPAL), CFG)
     nombres = {next(iter(h.commands)) for g in app.handlers.values() for h in g if hasattr(h, "commands")}
     assert {"avisos", "silencio", "macro"} <= nombres and "/avisos" in F.AYUDA and "impacto estimado en %" in F.AYUDA
+
+
+def test_un_grupo_queda_suscrito_solo_y_respeta_el_silencio(tmp_path, monkeypatch):
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", PRINCIPAL)
+    c = ctx(tmp_path)
+    assert S.suscribir_grupo(c, -100777) is True and S.suscribir_grupo(c, -100777) is False          # la segunda vez ya estaba
+    assert Estado(CFG, c.estado_path).d["suscriptores"] == [-100777]
+    S.suscribir(c, -100777, False)                                                                    # /silencio en el grupo
+    assert S.suscribir_grupo(c, -100777) is False and Estado(CFG, c.estado_path).d["suscriptores"] == []   # no se vuelve a suscribir solo
+    assert "también recibirá" in F.plano(S.suscribir(c, -100777, True)) and S.suscribir_grupo(c, -100777) is False
+    assert Estado(CFG, c.estado_path).d["suscriptores"] == [-100777] and Estado(CFG, c.estado_path).d["silenciados"] == []
+
+
+def test_usar_el_bot_en_un_grupo_lo_suscribe_a_los_avisos(tmp_path, monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    import bot
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", PRINCIPAL)
+    c = ctx(tmp_path)
+    monkeypatch.setattr(S, "crear_contexto", lambda *a, **k: c)
+    monkeypatch.setattr(S, "resp_estado", lambda ctx_: "estado ok")
+    app = bot.construir_app("123456:ABCDEF-token-falso-para-pruebas", int(PRINCIPAL), CFG)
+    enviados = []
+
+    async def send_message(chat, texto, **k):
+        enviados.append((chat, texto))
+    monkeypatch.setattr(type(app.bot), "send_message", lambda self, chat, texto, **k: send_message(chat, texto, **k))
+    estado = next(h for g in app.handlers.values() for h in g if hasattr(h, "commands") and "estado" in h.commands)
+
+    class Msg:
+        textos = []
+
+        async def reply_text(self, texto, **k):
+            self.textos.append(texto)
+
+    def usar(chat, tipo):
+        asyncio.run(estado.callback(SimpleNamespace(effective_chat=SimpleNamespace(id=chat, type=tipo), message=Msg()), SimpleNamespace(args=[])))
+    usar(-100777, "supergroup")
+    usar(-100777, "supergroup")
+    usar(555, "private")                                                                             # un chat privado ajeno NO se suscribe solo
+    assert Estado(CFG, c.estado_path).d["suscriptores"] == [-100777]
+    assert len(enviados) == 1 and enviados[0][0] == -100777 and "Este grupo recibirá los avisos automáticos" in enviados[0][1]
+    assert "my_chat_member" in bot.ACTUALIZACIONES

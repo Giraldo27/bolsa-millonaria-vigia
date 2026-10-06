@@ -604,7 +604,38 @@ def msg_noticia_relevante(s: Any, ahora: dt.datetime, cfg: dict[str, Any], afect
     tengo = " · la tienes" if s.rec.get("tengo") else ""
     return "\n".join([f"📰 {b(s.emisor + ' (' + s.ticker + ')')} · {esc(ETIQUETA[s.cat])}{tengo}", f"«{esc(n0.titulo[:260])}»",
                       it(f"{', '.join(esc(x) for x in s.fuentes[:2])} · {hace(n0.ts.isoformat(), ahora_utc)}"), _impacto_txt(s), *bloque_afectadas(afectadas),
+                      _movio_txt(s.rec.get("pulso"), C.mercado_abierto(ahora, cfg)),
                       it("Noticia informativa: por sí sola no es motivo para comprar ni vender.")])
+
+
+def _movio_txt(p: dict[str, Any] | None, abierto: bool) -> str:
+    """¿La noticia ya está afectando el precio? Dicho sin rodeos."""
+    if p is None:
+        return f"💹 {b('¿Ya movió el precio?')} No pude consultar el precio ahora."
+    if not abierto:
+        return f"💹 {b('¿Ya movió el precio?')} La bolsa está cerrada: se verá en la próxima apertura, y te aviso si la mueve."
+    z = p.get("z")
+    if z is not None and abs(z) >= 1:
+        return f"💹 {b('¿Ya movió el precio?')} {b('Sí')}: {esc(p['ticker'])} va {pct(p['r_hoy'], 1, True)} hoy, {veces(abs(z))} lo normal."
+    return f"💹 {b('¿Ya movió el precio?')} Todavía no ({esc(p['ticker'])} va {pct(p['r_hoy'], 1, True)} hoy, dentro de lo normal). Si la mueve, te aviso."
+
+
+def msg_noticia_mueve_precio(x: dict[str, Any], ahora: dt.datetime) -> str:
+    """Segundo aviso: una noticia ya avisada SÍ está afectando el precio de la acción."""
+    mov, sube = x["movimiento"], x["movimiento"] > 0
+    mins = int(x["minutos"])
+    hace_txt = f"{mins} min" if mins < 90 else f"{mins // 60} h"
+    L = [f"{'📈' if sube else '📉'} {b('La noticia ya mueve el precio: ' + x['ticker'] + ' ' + pct(mov, 1, True))}  {it(f'{fecha(ahora)} {ahora:%H:%M}')}",
+         f"«{esc(x['titulo'])}»",
+         f"💹 {b(x['ticker'])} {'subió' if sube else 'cayó'} {b(pct(abs(mov), 1))} desde que te avisé (hace {hace_txt}); hoy va {pct(x['pulso']['r_hoy'], 1, True)}."
+         + it(" Precios con unos 15 min de retraso.")]
+    if sube:
+        L.append(f"👉 {b('Qué hacer')}: " + ("la tienes: mantenla, no compres más." if x.get("tengo") else
+                                           "no la persigas. En la BVC, después de subidas así por una noticia, lo normal fue que devolviera parte en los días siguientes."))
+    else:
+        L.append(f"👉 {b('Qué hacer')}: " + (f"la tienes: no vendas por pánico; mira /semaforo {esc(x['ticker'])}. En casos así lo normal fue un rebote parcial."
+                                           if x.get("tengo") else "no la tienes: no hagas nada."))
+    return "\n".join(L)
 
 
 QUE_HACER_NOTICIA = {
@@ -846,7 +877,7 @@ No importa si pones el precio en pesos o en dólares, o el total en vez del prec
 /detalle · /catalizadores · /informe · /actualizar — para mirar más a fondo
 
 <b>Los avisos que te mando solo</b> (¿no te llegan en este chat? escribe /avisos)
-🚨 noticia de alto impacto de una empresa de la BVC (reviso cada minuto), con su impacto estimado en % (+ sube, − baja)
+🚨 noticia de alto impacto de una empresa de la BVC (reviso cada 15 segundos), con su impacto estimado en % (+ sube, − baja)
 📰 noticia relevante (aviso corto, también con su impacto en %)
 🌍 movimiento o noticia macro fuerte, con las acciones beneficiadas y afectadas
 🔁 cambio sugerido (por ejemplo, salir de una acción que casi no se negocia en trii)

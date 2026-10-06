@@ -246,6 +246,11 @@ def es_repetida(titulo: str, previos: list[list[str]], umbral: float) -> bool:
     return False
 
 
+def lleno(lista: list[Any], tope: int | None) -> bool:
+    """¿Se alcanzó el tope? Un tope de 0 (o vacío) significa SIN tope."""
+    return bool(tope) and len(lista) >= tope
+
+
 def texto_para_clasificar(it: Item) -> str:
     """Medios: sólo el TITULAR (el cuerpo trae palabras sueltas que confunden). Superfinanciera: el resumen oficial más el tema con que lo radicaron."""
     return f"{it.titulo}. {it.tema.split(' #')[0]}" if it.origen == "sfc" else it.titulo
@@ -356,8 +361,9 @@ class Lector:
         for x in f["rss"]:
             tareas.append((x["nombre"], lambda x=x: self.rss(x)))
         g = f["google"]
-        if g["activo"] and g["consultas"]:
-            q = g["consultas"][self.ronda % len(g["consultas"])]
+        cada = max(int(g.get("cada_rondas", 1)), 1)
+        if g["activo"] and g["consultas"] and self.ronda % cada == 0:
+            q = g["consultas"][(self.ronda // cada) % len(g["consultas"])]
             tareas.append(("Google News", lambda: self.google(q)))
         self.ronda += 1
         activas = [(n, fn) for n, fn in tareas if self.fallos.get(n, 0) < 3 or self.ronda % 10 == 0]
@@ -610,27 +616,31 @@ def ronda(lector: Lector, mem: Memoria, f: Any, ahora: dt.datetime, cfg: dict[st
         items = sorted(g["items"], key=lambda i: (i.origen != "sfc", -i.ts.timestamp()))
         previos = [x[1] for x in titulos.get(nombre, [])]
         if nivel == "bajo":
-            if len(otras) >= n["max_otras_hora"] or es_repetida(items[0].titulo, previos, n["parecido_repetida"]):
-                continue                                                               # misma noticia en otro medio, o ya van muchas esta hora
+            if lleno(otras, n["max_otras_hora"]) or es_repetida(items[0].titulo, previos, n["parecido_repetida"]):
+                continue                                                               # misma noticia en otro medio (o tope por hora, si se configuró)
         else:
-            if nivel == "medio" and len(medias) >= n["max_medias_hora"]:
-                if not n.get("todas") or len(otras) >= n["max_otras_hora"]:
+            if nivel == "medio" and lleno(medias, n["max_medias_hora"]):
+                if not n.get("todas") or lleno(otras, n["max_otras_hora"]):
                     continue
                 nivel = "bajo"                                                         # ya van muchas relevantes esta hora: sale como "otra noticia" (no se pierde)
             clave = f"{nombre}|{sentido:+d}"
             ult = mem.d["avisos"].get(clave)
             if ult and (ahora_utc - dt.datetime.fromisoformat(ult)).total_seconds() / 60 < n["enfriamiento_emisor_min"]:
-                if not n.get("todas") or es_repetida(items[0].titulo, previos, n["parecido_repetida"]) or len(otras) >= n["max_otras_hora"]:
+                if not n.get("todas") or es_repetida(items[0].titulo, previos, n["parecido_repetida"]) or lleno(otras, n["max_otras_hora"]):
                     continue
                 nivel = "bajo"                                                         # ya hubo un aviso fuerte de esta empresa hace poco: esta sale como "otra noticia"
         rec = recomendar(cat, sentido or 1, ticker, p, ahora, cfg, tengo, estudio, c.sentido)
         base_imp = impacto_estimado(cat, 1, estudio)
         senales.append(Senal(nombre, ticker, cat, sentido, puntaje, items, rec, ahora_utc, nivel,
                              (sentido * base_imp if sentido else base_imp) if base_imp is not None else None))
-    senales.sort(key=lambda s: -s.puntaje)
-    senales = senales[: n["max_por_ronda"]]
+    senales.sort(key=lambda s: -s.puntaje)                                              # las más importantes salen primero
+    if n["max_por_ronda"]:
+        senales = senales[: n["max_por_ronda"]]
     for s in senales:
         marca = ahora_utc.isoformat(timespec="seconds")
+        if s.rec.get("pulso"):                                                         # se vigila el precio: si la noticia lo mueve, sale un segundo aviso
+            mem.d.setdefault("seguimiento", []).append(dict(emisor=s.emisor, ticker=s.ticker, ts=marca, ref=s.rec["pulso"]["precio"], sigma=s.rec["pulso"]["sigma"],
+                                                            titulo=s.items[0].titulo[:200], sentido=s.sentido, tengo=bool(s.rec.get("tengo"))))
         if s.nivel == "medio":
             medias.append(marca)
         if s.nivel == "bajo":
@@ -644,3 +654,45 @@ def ronda(lector: Lector, mem: Memoria, f: Any, ahora: dt.datetime, cfg: dict[st
         mem.sucia = True
     mem.podar(ahora_utc)
     return senales, salud
+
+
+def movimientos_tras_noticia(mem: Memoria, f: Any, ahora: dt.datetime, cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    """Noticias ya avisadas cuyo precio se movió fuerte DESPUÉS del aviso (≥ 1 vez la variación diaria normal y al menos 1 %): es la confirmación de que la
+    noticia sí está afectando el precio. Cada una se avisa una sola vez; se vigilan `seguimiento_min` minutos y sólo con el mercado abierto (el precio
+    no se mueve de noche). Los precios llegan con ≈ 15 minutos de retraso."""
+    n = cfg["noticias_bvc"]
+    pend = mem.d.get("seguimiento", [])
+    if not pend:
+        return []
+    ahora_utc = ahora.astimezone(UTC)
+    vivos, out = [], []
+    abierto = C.mercado_abierto(ahora, cfg)
+    cambio = False
+    for x in pend:
+        edad = (ahora_utc - dt.datetime.fromisoformat(x["ts"])).total_seconds() / 60
+        if edad > 4 * 24 * 60:                                                         # nunca llegó a verse con el mercado abierto (fin de semana largo): se olvida
+            cambio = True
+            continue
+        if not abierto:
+            vivos.append(x)
+            continue
+        if not x.get("inicio"):                                                        # el reloj del seguimiento corre desde que el mercado está abierto
+            x["inicio"] = ahora_utc.isoformat(timespec="seconds")
+            cambio = True
+        if (ahora_utc - dt.datetime.fromisoformat(x["inicio"])).total_seconds() / 60 > n["seguimiento_min"]:
+            cambio = True
+            continue
+        p = pulso(f, x["ticker"], cfg, ahora)
+        if p is None or not x.get("ref"):
+            vivos.append(x)
+            continue
+        mov = p["precio"] / x["ref"] - 1
+        if abs(mov) >= max(n["z_confirma"] * (x.get("sigma") or 0.0), 0.01):
+            out.append(dict(x, movimiento=mov, minutos=edad, pulso=p))
+            cambio = True
+        else:
+            vivos.append(x)
+    if cambio:
+        mem.d["seguimiento"] = vivos
+        mem.sucia = True
+    return out

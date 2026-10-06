@@ -17,7 +17,7 @@ from typing import Any, Callable
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CallbackQueryHandler, ChatMemberHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from src import formato as F
 from src import servicio as S
@@ -29,7 +29,7 @@ for _ruidoso in ("httpx", "httpcore", "telegram", "apscheduler"):      # httpx i
     logging.getLogger(_ruidoso).setLevel(logging.WARNING)
 log = logging.getLogger("bot")
 
-ACTUALIZACIONES = ["message", "callback_query"]                         # mensajes y toques de botones
+ACTUALIZACIONES = ["message", "callback_query", "my_chat_member"]       # mensajes, toques de botones y "me agregaron a un grupo"
 MENU = [[("📊 Semáforo", "c:semaforo"), ("💼 Mi cartera", "c:cartera")],
         [("📰 Noticias BVC", "c:noticias"), ("🌍 Macro", "c:macro")],
         [("🛒 Qué comprar", "c:comprar"), ("📍 Cómo voy", "c:estado")],
@@ -71,6 +71,37 @@ def construir_app(token: str, chat_id: int, cfg: dict | None = None) -> Applicat
     pendiente: dict[int, tuple[str, str | None, float]] = {}                            # chat → (compra|venta|rank, ticker, hasta cuándo): respuesta a un botón
     comandos: dict[str, Callable[[Update, list[str]], Any]] = {}
 
+    grupos_suscritos: set[int] = set()
+
+    async def suscribir_grupo(update: Update, saludar: bool = False) -> None:
+        """Los GRUPOS donde está el bot reciben también los avisos automáticos (pedido del usuario): se suscriben solos la primera vez que alguien usa el bot
+        ahí, o cuando lo agregan. Se puede apagar en ese grupo con /silencio."""
+        ch = update.effective_chat
+        if getattr(ch, "type", "private") not in ("group", "supergroup") or ch.id in grupos_suscritos or ch.id in silenciados:
+            return
+        grupos_suscritos.add(ch.id)
+        try:
+            nuevo = await asyncio.to_thread(S.suscribir_grupo, S.crear_contexto(), ch.id)
+            if nuevo or saludar:
+                await context_bot_send(ch.id, "🔔 " + F.b("Este grupo recibirá los avisos automáticos") + ": noticias de la BVC con su impacto en %, macro, cambios sugeridos, "
+                                              "resumen de las 8:10 y radar de las 19:30.\nPara apagarlos aquí: /silencio")
+        except Exception:                                         # noqa: BLE001
+            log.exception("no pude suscribir el grupo")
+
+    silenciados: set[int] = set()
+
+    async def context_bot_send(chat: int, texto: str) -> None:
+        try:
+            await app.bot.send_message(chat, texto, parse_mode="HTML", disable_web_page_preview=True)
+        except Exception:                                         # noqa: BLE001
+            log.error("no pude escribir en el chat nuevo")
+
+    async def me_agregaron(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        cm = update.my_chat_member
+        if cm and cm.new_chat_member.status in ("member", "administrator"):
+            await suscribir_grupo(update, saludar=True)
+    app.add_handler(ChatMemberHandler(me_agregaron, ChatMemberHandler.MY_CHAT_MEMBER), group=2)
+
     def solo_dueno(chat: int) -> bool:
         return b.get("escritura_solo_mi_chat", False) and chat != chat_id
 
@@ -78,6 +109,7 @@ def construir_app(token: str, chat_id: int, cfg: dict | None = None) -> Applicat
                 admite_html: bool = True, botones: list[list[tuple[str, str]]] | None = None):
         async def ejecutar(update: Update, args: list[str]) -> None:
             chat = update.effective_chat.id
+            await suscribir_grupo(update)
             if escribe and solo_dueno(chat):
                 await responder(update, "🔒 Este comando cambia el seguimiento y sólo lo puede usar el dueño del bot.")
                 return
@@ -141,6 +173,11 @@ def construir_app(token: str, chat_id: int, cfg: dict | None = None) -> Applicat
 
     def suscripcion(activar: bool):
         async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+            if activar:
+                silenciados.discard(update.effective_chat.id)
+            else:
+                silenciados.add(update.effective_chat.id)
+                grupos_suscritos.discard(update.effective_chat.id)
             try:
                 texto = await asyncio.to_thread(S.suscribir, S.crear_contexto(), update.effective_chat.id, activar)
             except Exception:                                     # noqa: BLE001

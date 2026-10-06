@@ -30,7 +30,7 @@ from .state import Estado, ErrorEstado, universo_permitido
 RESPALDO_FUENTE = {
     "precios": "uso los últimos datos guardados; si no hay, no habrá alertas de color hasta que vuelvan. Si ves un movimiento fuerte, mira trii a mano.",
     "noticias": "pruebo otras fuentes de noticias (Yahoo y Google). Si también fallan, sospecho de una mala noticia cuando hay mucho volumen y la acción abre muy abajo.",
-    "noticias_bvc": "sigo intentando cada 2 minutos y te aviso cuando vuelvan. Mientras tanto no recibirás avisos de noticias de la BVC; el semáforo de tu cartera sigue funcionando.",
+    "noticias_bvc": "sigo intentando cada pocos segundos y te aviso cuando vuelvan. Mientras tanto no recibirás avisos de noticias de la BVC; el semáforo de tu cartera sigue funcionando.",
 }
 
 
@@ -100,6 +100,16 @@ def _a_suscriptores(ctx: Contexto, texto: str, botones: list[list[tuple[str, str
             continue
 
 
+def suscribir_grupo(ctx: Contexto, chat: int) -> bool:
+    """Suscribe un grupo a los avisos automáticos si no lo estaba ni pidió silencio. Devuelve True si quedó suscrito ahora."""
+    d = leer_estado(ctx).d
+    if chat in d.get("suscriptores", []) or chat in d.get("silenciados", []):
+        return False
+    with transaccion(ctx) as e:
+        e.d["suscriptores"] = ([c for c in e.d.get("suscriptores", []) if c != chat] + [chat])[-20:]
+    return True
+
+
 def suscribir(ctx: Contexto, chat: int, activar: bool) -> str:
     """/avisos y /silencio: este chat empieza (o deja) de recibir los avisos automáticos. El chat principal (TELEGRAM_CHAT_ID) los recibe siempre."""
     import os
@@ -110,6 +120,7 @@ def suscribir(ctx: Contexto, chat: int, activar: bool) -> str:
         if activar:
             lista.append(chat)
         e.d["suscriptores"] = lista[-20:]
+        e.d["silenciados"] = ([c for c in e.d.get("silenciados", []) if c != chat] + ([] if activar else [chat]))[-50:]      # un grupo en silencio no se vuelve a suscribir solo
     if activar:
         return ("🔔 " + F.b("Listo: este chat también recibirá los avisos automáticos") + "\nNoticias de la BVC con su impacto en %, movimientos macro con las acciones "
                 "beneficiadas y afectadas, cambios sugeridos, el resumen de las 8:10 y el radar de las 19:30.\nPara dejar de recibirlos: /silencio")
@@ -968,11 +979,18 @@ def tick_noticias(ctx: Contexto, lector: Any, mem: Any, sugerencia: dict[str, An
         m = F.msg_noticia_bvc(s, ctx.ahora, ctx.cfg, sugerencia if (sugerencia and sugerencia["ticker"] != s.ticker) else None, afectadas)
         mensajes.append(m)
         enviar_o_encolar(ctx, m, botones)
+    try:                                                                               # ¿alguna noticia ya avisada está moviendo el precio? → segundo aviso
+        for x in N.movimientos_tras_noticia(mem, ctx.f, ctx.ahora, ctx.cfg):
+            m = F.msg_noticia_mueve_precio(x, ctx.ahora)
+            mensajes.append(m)
+            enviar_o_encolar(ctx, m, BOTONES_NOTICIA)
+    except Exception:                                                                  # noqa: BLE001 — el seguimiento no tumba la ronda
+        pass
     if salud:                                                                          # aviso si TODAS las fuentes llevan varias rondas caídas (y cuando vuelven)
         ok, antes = any(salud.values()), int(mem.d.get("rondas_sin_fuentes", 0))
-        if not ok or antes:                                                            # con todo bien no se toca state.json (se escribiría cada 2 minutos sin necesidad)
+        if not ok or antes:                                                            # con todo bien no se toca state.json (se escribiría en cada ronda sin necesidad)
             with transaccion(ctx) as e:
-                ev = e.registrar_fuente("noticias_bvc", ok, ctx.ahora, 5, 180)
+                ev = e.registrar_fuente("noticias_bvc", ok, ctx.ahora, max(5, int(600 / max(ctx.cfg["noticias_bvc"]["cada_s"], 1))), 180)
             if ev:
                 enviar_o_encolar(ctx, F.msg_salud("las noticias de la BVC", ev, ctx.ahora, RESPALDO_FUENTE["noticias_bvc"], salud))
         mem.d["rondas_sin_fuentes"] = 0 if ok else antes + 1
