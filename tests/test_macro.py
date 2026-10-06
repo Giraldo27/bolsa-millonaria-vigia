@@ -1,4 +1,4 @@
-﻿"""Pruebas de la macro en vivo (factores, sensibilidades medidas, titulares macro), de los cambios sugeridos y del resumen de la mañana."""
+"""Pruebas de la macro en vivo (factores, sensibilidades medidas, titulares macro), de los cambios sugeridos y del resumen de la mañana."""
 import datetime as dt
 from types import SimpleNamespace
 
@@ -267,7 +267,7 @@ def test_el_resumen_de_la_manana_junta_macro_calendario_liquidez_y_cambios(tmp_p
     e.registrar_compra("NUCO", 1200, 15.2, AHORA, 58e6)
     t = F.plano(S.resumen_manana(ctx(tmp_path, Fuentes({"brasil": 0.05}, dia="2026-10-28"), ahora=bog(2026, 10, 28, 8, 10)), BANCO))
     for esperado in ("Antes de abrir (la bolsa abre a las 08:30)", "Qué pasó mientras dormías", "La bolsa de Brasil sube 5,0%", "Beneficiadas: NUCO (la tienes)",
-                     "Hoy en el calendario", "Decisión de la FED", "Ojo con lo que se negocia poco", "Liquidez de TSLA en trii: MALA", "Cambios sugeridos", "TSLA → PFSURA",
+                     "Hoy en el calendario", "Decisión de la FED", "Ojo con lo que se negocia poco", "Liquidez en trii: TSLA casi no se negocia", "Cambios sugeridos", "TSLA → PFSURA",
                      "Órdenes límite, nunca a mercado", "Aún no sé cómo vas"):
         assert esperado in t, esperado
     e.actualizar_rank(1.0, 3.0, AHORA)

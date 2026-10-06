@@ -156,7 +156,8 @@ def construir_app(token: str, chat_id: int, cfg: dict | None = None) -> Applicat
     comando("semaforo", lambda c, a: S.resp_semaforo(c, a[0] if a else None), "⏳ Revisando tus acciones…")
     comando("detalle", lambda c, a: S.resp_detalle(c, a[0] if a else None), "⏳ Calculando los números técnicos…")
     comando("banco", lambda c, a: S.resp_banco(c), "⏳ Buscando los mejores relevos (tarda cerca de 1 minuto)…", pesado=True)
-    comando("comprar", lambda c, a: S.resp_comprar(c), "⏳ Comparando las acciones de la BVC (cerca de 1 minuto)…", pesado=True)
+    from src import analisis as AN
+    comando("comprar", lambda c, a: AN.resp_comprar(c), "⏳ Comparando las acciones de la BVC y revisando cada una (cerca de 1 minuto)…", pesado=True)
     comando("noticias", lambda c, a: S.resp_noticias(c, " ".join(a) if a else None))
     comando("macro", lambda c, a: S.resp_macro(c), "⏳ Mirando el petróleo, el dólar, Wall Street y Brasil…")
     comando("liquidez", lambda c, a: S.resp_liquidez(c, a), "💧 Revisando cuánto se negocia en trii…")
@@ -164,8 +165,8 @@ def construir_app(token: str, chat_id: int, cfg: dict | None = None) -> Applicat
     comando("actualizarnoticias", lambda c, a: S.resp_nuevas(c), "🔄 Consultando la Superfinanciera y la prensa ahora mismo…")
     comando("catalizadores", lambda c, a: S.resp_catalizadores(c), "⏳ Buscando fechas importantes…")
     comando("actualizar", lambda c, a: S.resp_actualizar(c), "🔄 Consultando todo de nuevo con datos frescos (cerca de 1 minuto)…", pesado=True)
-    comando("base", lambda c, a: S.resp_base(c), "⏳ Comparando todas las acciones de la BVC (cerca de 1 minuto)…", pesado=True)
     from src import analisis as A
+    comando("base", lambda c, a: A.resp_reemplazo(c, a), "⏳ Comparando todas las acciones de la BVC (cerca de 1 minuto)…", pesado=True)
     comando("ganar", lambda c, a: A.resp_ganar(c), "⏳ Pasando tu cartera por todos los filtros (cerca de 1 minuto)…", pesado=True)
     comando("reemplazo", lambda c, a: A.resp_reemplazo(c, a), "⏳ Buscando qué acción puede reemplazarla (cerca de 1 minuto)…", pesado=True)
     comando("revisar", lambda c, a: A.resp_revisar(c, a), "⏳ Revisando precio, macro, noticias y liquidez de esa acción…")

@@ -9,6 +9,7 @@ import json
 import re
 import shutil
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -74,6 +75,8 @@ def transaccion(ctx: Contexto):
 def enviar_o_encolar(ctx: Contexto, texto: str, botones: list[list[tuple[str, str]]] | None = None) -> bool:
     """Envía por Telegram (con botones opcionales); si falla, guarda el mensaje para reintentarlo en la próxima corrida. En dry-run sólo lo imprime."""
     ctx.enviados.append(texto)
+    global ULTIMO_AVISO
+    ULTIMO_AVISO = time.monotonic()                                                    # para el "sigo vigilando": cuenta cualquier aviso automático
     if ctx.dry:
         ctx.salida("─" * 60 + "\n" + F.plano(texto) + ("\n[" + "] [".join(t for fila in botones for t, _ in fila) + "]" if botones else "") + "\n" + "─" * 60)
         return True
@@ -83,6 +86,97 @@ def enviar_o_encolar(ctx: Contexto, texto: str, botones: list[list[tuple[str, st
     with transaccion(ctx) as e:
         e.agregar_pendiente(texto, ctx.ahora)
     return False
+
+
+ULTIMO_AVISO = time.monotonic()
+
+
+def resumen_liquidez(ctx: Contexto, tickers: list[str]) -> list[str]:
+    """UNA línea con lo que se negocia poco en trii de esa lista, y la misma postura en todas las respuestas: no comprar más; si se vende, orden límite y sin prisa.
+    (Antes cada respuesta repetía un párrafo por acción con frases distintas —"no la operes", "no hagas nada", "cámbiala"— que se contradecían.)"""
+    from . import liquidez as LQ
+    mala, justa = [], []
+    for t in tickers:
+        try:
+            nivel = LQ.medir(ctx.f, t, ctx.cfg)["nivel"]
+        except Exception:                                                              # noqa: BLE001
+            continue
+        if nivel in (LQ.MALA, LQ.SIN_DATO):
+            mala.append(t)
+        elif nivel == LQ.JUSTA:
+            justa.append(t)
+    if not mala and not justa:
+        return []
+    juntar = lambda xs: (", ".join(xs[:-1]) + " y " + xs[-1]) if len(xs) > 1 else xs[0]     # noqa: E731
+    partes = ([f"{F.b(juntar(mala))} casi no se negocia{'n' if len(mala) > 1 else ''}"] if mala else []) + \
+             ([f"{F.b(juntar(justa))} se negocia{'n' if len(justa) > 1 else ''} poco o a ratos"] if justa else [])
+    return [f"💧 {F.b('Liquidez en trii')}: " + "; ".join(partes) + ". No compres más de " + ("estas" if len(mala) + len(justa) > 1 else "esta")
+            + "; si vendes, que sea con orden límite y sin prisa. Detalle: /liquidez"]
+
+
+def nota_ranking(ctx: Contexto, est: Estado) -> str:
+    """Aviso cuando el ranking que diste está viejo o no cuadra con lo que vale tu cartera: los consejos de "mantener o cambiar" dependen de ese dato."""
+    mia, cuando = est.rent.get("mia"), est.rent.get("actualizado")
+    if mia is None:
+        return ""
+    try:
+        from . import cartera as CA
+        calc = CA.rent_total(CA.valorar(ctx.f, est.d["cartera"], ctx.cfg, CA.trm(ctx.f, ctx.cfg)))
+    except Exception:                                                                  # noqa: BLE001
+        calc = None
+    try:
+        dia = dt.datetime.fromisoformat(cuando).date() if cuando else None
+    except ValueError:
+        dia = None
+    viejo = dia is not None and dia < ctx.ahora.date()
+    lejos = calc is not None and abs(calc * 100 - mia) >= 2.0
+    if not (viejo or lejos):
+        return ""
+    de_cuando = f" es del {F.fecha(dia)}" if viejo else ""
+    cuentas = f" Por mis cuentas tu cartera va hoy cerca de {F.b(F.pct(calc, 1, True))}." if lejos else ""
+    return (f"⚠️ {F.b('Revisa tu ranking')}: el dato que tengo ({F.n(mia, 1, True)}%){de_cuando}.{cuentas} Si ya cambió, escríbeme "
+            f"{F.b('voy X y el corte está en Y')} con lo que muestra trii: de eso depende el consejo de mantener o cambiar.")
+
+
+def titulares_propios(ctx: Contexto, res: Any) -> Any:
+    """Deja en el semáforo sólo los titulares que hablan de ESA empresa. Los proveedores mezclan notas generales del mercado ("el Nasdaq bate un récord",
+    "Saudi Aramco…") y aparecían como noticias de Grupo Argos o de NUCO. Si ninguno la nombra, se dice así (`solo_generales`)."""
+    import re
+    from .noticias_bvc import emisores_cfg, norm
+    claves = list(getattr(res, "claves", None) or [])
+    if not claves:
+        return res
+    patrones = list((ctx.cfg["noticias_bvc"].get("nombres_eeuu") or {}).get(res.ticker, []))
+    for e in emisores_cfg(ctx.cfg):
+        if res.ticker in e.tickers:
+            patrones += [r"\b" + re.escape(norm(a)) + r"\b" for a in e.alias]
+    if not patrones:
+        return res
+    propios = [k for k in claves if any(re.search(p, norm(k.get("titulo", ""))) for p in patrones)]
+    res.claves = propios
+    if not propios:
+        res.solo_generales = True
+    return res
+
+
+def latido(ctx: Contexto, mem: Any, minutos: float) -> str | None:
+    """Con la bolsa abierta, si llevan `minutos` sin salir ningún aviso automático, una línea corta para que el silencio no parezca una falla."""
+    if not minutos or not C.mercado_abierto(ctx.ahora, ctx.cfg) or time.monotonic() - ULTIMO_AVISO < minutos * 60:
+        return None
+    salud = (mem.d.get("salud") or {}) if mem is not None else {}
+    bien = sum(1 for v in salud.values() if v)
+    ult = (mem.d.get("senales") or [])[-1:] if mem is not None else []
+    cuando = ""
+    if ult:
+        try:
+            t = dt.datetime.fromisoformat(ult[0]["ts"]).astimezone(ctx.ahora.tzinfo)
+            cuando = f" La última fue a las {t:%H:%M} ({F.esc(ult[0]['ticker'])})."
+        except Exception:                                                              # noqa: BLE001
+            cuando = ""
+    m = (f"✅ {F.b('Sigo vigilando')}: no ha salido ninguna noticia nueva de las empresas de la bolsa ni un movimiento macro fuerte en las últimas "
+         f"{int(minutos // 60)} horas.{cuando}" + (f" Fuentes de noticias respondiendo: {bien} de {len(salud)}." if salud else ""))
+    enviar_o_encolar(ctx, m)
+    return m
 
 
 def _a_suscriptores(ctx: Contexto, texto: str, botones: list[list[tuple[str, str]]] | None = None) -> None:
@@ -372,6 +466,9 @@ def resp_estado(ctx: Contexto) -> str:
             txt += "\n\n" + _cartera_txt(ctx, est)
         except Exception:                                                              # noqa: BLE001 — el estado se muestra aunque falle la valoración
             txt += "\n\n💼 No pude valorar tu cartera ahora; /cartera lo intenta de nuevo."
+    nota = nota_ranking(ctx, est)
+    if nota:
+        txt += "\n" + nota
     if res is None:
         txt += "\n⚠️ No pude calcular el semáforo ahora (datos no disponibles). Mira trii a mano si ves un movimiento fuerte."
     if est.d["alertas_pendientes"]:
@@ -394,10 +491,10 @@ def resp_semaforo(ctx: Contexto, ticker: str | None = None) -> str:
             continue
         try:
             res, _, _ = evaluar_activo(ctx.f, t, ctx.ahora, ctx.cfg, est, ctx.puntuador, ctx.motor, con_base_noticias=True)
-            partes.append(F.msg_semaforo(res, ctx.ahora, ctx.f.traducir))
+            partes.append(F.msg_semaforo(titulares_propios(ctx, res), ctx.ahora, ctx.f.traducir))
         except Exception as ex:                                                          # noqa: BLE001 — una acción sin datos no impide ver las demás
             partes.append(f"⚠️ {F.b(F.esc(t))}: no pude calcular su semáforo ahora ({F.esc(type(ex).__name__)}). Prueba /actualizar.")
-    avisos = avisos_liquidez(ctx, [t for t in lista if t in universo_permitido(ctx.cfg)])
+    avisos = resumen_liquidez(ctx, [t for t in lista if t in universo_permitido(ctx.cfg)])
     avisos = lineas_fuera_de_horario(ctx, lista) + avisos
     if any(t in ctx.cfg["universe"]["mgc"] for t in lista):
         avisos.append(F.it("El semáforo de las acciones de EE. UU. mira su precio en Nueva York (en dólares). En trii las ves en pesos y se negocian aparte: "
@@ -409,7 +506,8 @@ def resp_banco(ctx: Contexto) -> str:
     est = leer_estado(ctx)
     r = ejecutar_motor(ctx.f, est, ctx.cfg, ctx.ahora, ctx.puntuador, ctx.motor)
     hora = C.hora_orden_manana(C.proxima_sesion(ctx.ahora, ctx.cfg) or ctx.ahora.date(), ctx.cfg)
-    return "\n".join([F.msg_banco(r.banco, r.activo, r.mee, r.excluidos), "", *F.bloque_decision(r.decision, r.activo, hora)])
+    nota = nota_ranking(ctx, est)
+    return "\n".join([F.msg_banco(r.banco, r.activo, r.mee, r.excluidos), "", *F.bloque_decision(r.decision, r.activo, hora), *([nota] if nota else [])])
 
 
 def resp_detalle(ctx: Contexto, ticker: str | None = None) -> str:
@@ -694,7 +792,7 @@ def _cartera_txt(ctx: Contexto, est: Estado, titulo: bool = True) -> str:
     filas = CA.valorar(ctx.f, est.d["cartera"], ctx.cfg, tasa)
     colores = {t: est.color_previo(t) for t in est.tenidos()}
     montos = {x["ticker"]: x["valor_cop"] for x in filas if x["valor_cop"] == x["valor_cop"]}
-    avisos = lineas_fuera_de_horario(ctx, [x["ticker"] for x in filas]) + avisos_liquidez(ctx, [x["ticker"] for x in filas], montos)
+    avisos = lineas_fuera_de_horario(ctx, [x["ticker"] for x in filas]) + resumen_liquidez(ctx, [x["ticker"] for x in filas])
     return F.msg_cartera(filas, CA.rent_total(filas), tasa, colores, titulo) + ("\n" + "\n".join(avisos) if avisos else "")
 
 
@@ -930,8 +1028,9 @@ def resp_comprar(ctx: Contexto) -> str:
     hora = C.hora_orden_manana(C.proxima_sesion(ctx.ahora, ctx.cfg) or ctx.ahora.date(), ctx.cfg)
     from . import noticias_bvc as N
     liq = avisos_liquidez(ctx, [r.banco[0].c.ticker], {r.banco[0].c.ticker: float(ctx.cfg["capital"]) * 0.25}, todos=True) if r.banco else []
+    nota = nota_ranking(ctx, est)
     return F.msg_que_comprar(r.banco, r.activo, r.mee, r.decision, r.corte, C.sesiones_restantes(ctx.ahora, ctx.cfg), senales_recientes(24, ctx.ahora), hora, ctx.cfg,
-                             n_estudio=N.cargar_estudio().get("n_total"), liquidez_txt=liq[0] if liq else None)
+                             n_estudio=N.cargar_estudio().get("n_total"), liquidez_txt=liq[0] if liq else None) + ("\n" + nota if nota else "")
 
 
 def mejor_bvc(ctx: Contexto) -> dict[str, Any] | None:
@@ -1072,7 +1171,7 @@ def resumen_manana(ctx: Contexto, banco: list[Any] | None = None) -> str:
     except Exception:                                                                  # noqa: BLE001 — el resumen sale aunque falle una parte
         cambios = []
     try:
-        liq = avisos_liquidez(ctx, sorted(est.tenidos()))
+        liq = resumen_liquidez(ctx, sorted(est.tenidos()))
     except Exception:                                                                  # noqa: BLE001
         liq = []
     h = C.horario(hoy, ctx.cfg)

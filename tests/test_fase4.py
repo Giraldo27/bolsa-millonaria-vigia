@@ -86,10 +86,10 @@ def test_titular_sin_traduccion_se_muestra_en_ingles_y_lo_dice():
 
 def test_noticias_aclara_que_muestra_los_titulares_mas_preocupantes_y_el_tono_general():
     p = F.plano(F.msg_semaforo(mk_res(VERDE, n_24h=13, sentimiento=-0.11, claves=[CLAVE]), bog(2026, 10, 6)))
-    assert "13 en las últimas 24 horas, tono general mixto" in p and "titulares más preocupantes" in p
+    assert "13 en las últimas 24 horas, tono general mixto" in p and "El titular más preocupante:" in p
     pos = dict(CLAVE, puntaje=0.6, palabras=[])
     p2 = F.plano(F.msg_semaforo(mk_res(VERDE, n_24h=13, sentimiento=0.4, claves=[pos]), bog(2026, 10, 6)))
-    assert "tono general positivo" in p2 and "titulares destacados" in p2 and "más preocupantes" not in p2
+    assert "tono general positivo" in p2 and "El titular destacado:" in p2 and "más preocupantes" not in p2
     p3 = F.plano(F.msg_semaforo(mk_res(ROJO, n_24h=1, noticia_negativa=True, claves=[CLAVE]), bog(2026, 10, 6)))
     assert "tono general negativo" in p3 and "titulares" not in p3.split("tono general")[1].split("\n")[0]       # con 1 sola noticia no hace falta el rótulo
 
@@ -171,7 +171,7 @@ def test_msg_estado_con_y_sin_ranking(tmp_path):
     e = estado_tmp(tmp_path)
     t = F.msg_estado(e, CFG, bog(2026, 10, 5, 12))
     p = F.plano(t)
-    assert "aún sin comprar" in p and "voy 6,5 y el corte está en 11" in p and "has usado 0 de 4" in p and "0 de 15 mínimas" in p
+    assert "aún sin comprar" in p and "voy 6,5 y el corte está en 11" in p and "has usado 0 de 4" in p and "0 en todo el concurso (el mínimo es 15: faltan 15)" in p and "llevas 0 esta semana (el mínimo es 4: faltan 4)" in p
     sin_jerga(t)
     e2 = estado_tmp(tmp_path, mia=6.0, umbral=11.0, actualizado="2026-10-06T19:30")
     t2 = F.plano(F.msg_estado(e2, CFG, bog(2026, 10, 6, 12), mk_res(AMARILLO), 0.065))

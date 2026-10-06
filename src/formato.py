@@ -122,6 +122,8 @@ def bloque_noticias(r: ResultadoSemaforo, traductor: Traductor | None = None, ma
         return [f"📰 {b('Noticias')}: hoy no pude consultarlas (fuentes caídas), así que no puedo confirmar si hay una mala noticia.{extra}"]
     if r.n_24h == 0:
         return [f"📰 {b('Noticias')}: no hay titulares en las últimas 24 horas."]
+    if getattr(r, "solo_generales", False):                                            # los titulares que llegaron hablan del mercado, no de esta empresa: no se muestran como suyos
+        return [f"📰 {b('Noticias')}: ningún titular de las últimas 24 horas habla directamente de {esc(r.ticker)} (sólo llegaron notas generales del mercado)."]
     if r.noticia_negativa:
         general = "negativo"
     elif r.sentimiento is not None and r.sentimiento >= 0.2:
@@ -131,7 +133,8 @@ def bloque_noticias(r: ResultadoSemaforo, traductor: Traductor | None = None, ma
     mostradas = r.claves[:max_n]
     preocupan = any(tono(k["puntaje"], k["palabras"]) == "😟" for k in mostradas)
     L = [f"📰 {b('Noticias')}: {r.n_24h} en las últimas 24 horas, tono general {general}."
-         + (f" Estos son los {len(mostradas)} titulares {'más preocupantes' if preocupan else 'destacados'}:" if r.n_24h > len(mostradas) else "")]
+         + ((f" Estos son los {len(mostradas)} titulares {'más preocupantes' if preocupan else 'destacados'}:" if len(mostradas) > 1 else
+             f" El titular {'más preocupante' if preocupan else 'destacado'}:") if r.n_24h > len(mostradas) and mostradas else "")]
     for k in mostradas:
         titulo = k["titulo"]
         trad = traductor(titulo) if (traductor and k.get("idioma", "en") != "es") else None
@@ -340,7 +343,10 @@ def msg_estado(estado: Any, cfg: dict[str, Any], ahora: dt.datetime, res: Result
     else:
         L.append(f"🏁 {b('Ranking')}: no me has dicho cómo vas. Escríbeme {b('voy 6,5 y el corte está en 11')} (tu rentabilidad y la del corte, en %).")
     L.append(f"🔁 {b('Cambios de acción')}: has usado {estado.cambios_usados()} de {cfg['estado']['max_cambios']}" + (" (hoy ya hiciste uno)." if estado.cambio_hoy(ahora.date()) else "."))
-    L.append(f"🧾 {b('Operaciones')}: {estado.ops_semana(ahora.date())} de {a['ops_por_semana']} esta semana · {estado.ops_total()} de {a['minimo_total']} mínimas en total.")
+    sem, tot = estado.ops_semana(ahora.date()), estado.ops_total()
+    falta_s, falta_t = max(a["ops_por_semana"] - sem, 0), max(a["minimo_total"] - tot, 0)
+    L.append(f"🧾 {b('Operaciones')}: llevas {sem} esta semana (el mínimo es {a['ops_por_semana']}: " + ("cumplido ✅" if not falta_s else f"faltan {falta_s}") + f") · {tot} en todo el concurso "
+             f"(el mínimo es {a['minimo_total']}: " + ("cumplido ✅" if not falta_t else f"faltan {falta_t}") + ").")
     if corte:
         top = f"pasa el top {corte['top_pct']}%" if corte.get("top_pct") else "final: gana el #1"
         sem = C.semana_concurso(ahora.date(), cfg)
@@ -726,7 +732,8 @@ def msg_noticia_bvc(s: Any, ahora: dt.datetime, cfg: dict[str, Any], sugerencia:
 
 
 def msg_que_comprar(banco: list[EntradaBanco], actual: str, mee_actual: float | None, decision: Decision, corte: dict[str, Any] | None, sesiones: int,
-                    senales: list[dict[str, Any]], hora_orden: str, cfg: dict[str, Any], top: int = 5, n_estudio: int | None = None, liquidez_txt: str | None = None) -> str:
+                    senales: list[dict[str, Any]], hora_orden: str, cfg: dict[str, Any], top: int = 5, n_estudio: int | None = None, liquidez_txt: str | None = None,
+                    eleccion: dict[str, Any] | None = None) -> str:
     """/comprar: qué acción de la BVC comprar si quieres moverte, qué esperar y por cuánto tiempo. Ordena por movimiento esperado hasta el próximo corte."""
     costo = cfg["noticias_bvc"]["recomendacion"]["costo_ida_vuelta"]
     L = [f"🛒 {b('¿Qué acción de la BVC comprar?')}", ""]
@@ -748,9 +755,23 @@ def msg_que_comprar(banco: list[EntradaBanco], actual: str, mee_actual: float | 
         L.append(it("Las que se mueven casi igual van empatadas; entre ellas va primero la que menos se parece a lo que ya tienes."))
     if mee_actual and m.mee < mee_actual:
         L.append(it(f"Ojo: todas se mueven menos que tu cartera de hoy (±{pct(mee_actual, 1)}). Pasarte a la BVC baja el riesgo, y también lo que puedes remontar."))
+    descartes: list[str] = []
+    if eleccion is not None:                                                           # la elegida es la primera que pasa el MISMO chequeo de /revisar (precio, macro, noticias, liquidez)
+        ch = eleccion.get("chequeos") or {}
+        for e in banco[:top]:
+            x = ch.get(e.c.ticker)
+            if x and x["veredicto"] != "sin_contras" and (eleccion["ticker"] is None or e.c.mee > next(z.c.mee for z in banco if z.c.ticker == eleccion["ticker"])):
+                descartes.append(f"{esc(e.c.ticker)}: " + esc("; ".join(x["contras"]) or "no pasa el filtro de liquidez"))
+        if eleccion["ticker"] is None:
+            L += ["", f"👉 {b('Hoy no compraría ninguna')}: todas tienen más cosas en contra que a favor.", *[f"  ⚠️ {d}." for d in descartes[:5]],
+                  "Nada obliga a entrar hoy. Vuelve a preguntarme más tarde o mañana antes de abrir.", "", *bloque_decision(decision, actual, hora_orden)]
+            return "\n".join(L)
+        m = next(z.c for z in banco if z.c.ticker == eleccion["ticker"])
     L += ["", f"👉 {b('Si vas a comprar una')}: {b(m.ticker)}. {b('Qué esperar')}: que se mueva cerca de ±{pct(m.mee, 1)} hasta {hasta}, para arriba o para abajo "
               f"(no sé hacia dónde: más movimiento es más oportunidad y más riesgo). {b('Cuánto tiempo')}: hasta ese corte; entrar y salir cuesta cerca de {pct(costo, 1)}, "
               "así que no la compres para venderla en uno o dos días.",
+          *([it("La elijo porque es la que más se mueve entre las que hoy NO tienen más en contra que a favor. Descartadas hoy: ") + "; ".join(descartes[:4]) + "."] if descartes else []),
+          *([f"✅ A favor de {esc(m.ticker)} hoy: " + esc("; ".join(eleccion["chequeos"][m.ticker]["pros"])) + "."] if eleccion and eleccion["chequeos"].get(m.ticker, {}).get("pros") else []),
           *([liquidez_txt] if liquidez_txt else []),
           f"📝 {b('Cómo comprar')}: siempre con orden límite (tú pones el precio máximo), nunca \"a mercado\". Decide antes de abrir la bolsa el precio de entrada y a cuánto sales si sale mal.",
           "", *bloque_decision(decision, actual, hora_orden)]
@@ -821,7 +842,7 @@ def msg_noticias_actualizadas(filas: list[dict[str, Any]], salud: dict[str, bool
 # ------------------------------------------------------------------ macroeconomía y cambios sugeridos
 def linea_fuera(f: dict[str, Any] | None) -> str:
     """'antes de abrir hoy va +1,2 % (07:25)' / 'después del cierre va −0,8 %'. '' si no hay movimiento fuera de horario."""
-    if not f:
+    if not f or abs(f["cambio"]) < 0.001:                                              # menos de 0,1 %: no es información, es ruido
         return ""
     return f"{'antes de abrir hoy va' if f['estado'] == 'pre' else 'después del cierre va'} {pct(f['cambio'], 1, True)} ({f['hora']})"
 

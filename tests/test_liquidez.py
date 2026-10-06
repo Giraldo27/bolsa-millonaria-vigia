@@ -103,7 +103,7 @@ def test_medir_consulta_el_libro_de_colombia_y_nunca_falla():
 def test_la_frase_dice_cuanto_se_negocia_y_que_hacer():
     f = FuentesLiq(LIBROS)
     mala = LQ.frase(LQ.medir(f, "TSLA", CFG), 20e6)
-    assert "MALA" in mala and "$ 184 millones al día (pido 3.000)" in mala and "serían el 11% de lo que se negocia en un día" in mala and "No la operes" in mala
+    assert "MALA" in mala and "$ 184 millones al día (pido 3.000)" in mala and "serían el 11% de lo que se negocia en un día" in mala and "No la compres; si la tienes, sal con orden límite y sin prisa." in mala
     assert "Es una posición grande para esta acción" in LQ.frase(LQ.medir(f, "TSLA", CFG), 20e6, CFG)
     justa = LQ.frase(LQ.medir(f, "NVDA", CFG))
     assert "JUSTA" in justa and "orden límite" in justa and "a mercado" in justa and "No la recomiendo" in justa
@@ -117,7 +117,7 @@ def ctx(tmp_path, f):
 def test_al_registrar_una_compra_se_avisa_la_liquidez_en_trii(tmp_path):
     c = ctx(tmp_path, FuentesLiq(LIBROS, precios=PRECIOS, trm=3200.0))
     t = F.plano(S.resp_texto(c, "compré 20 tesla a 384")["texto"])
-    assert "Compra de TSLA registrada" in t and "Liquidez de TSLA en trii: MALA" in t and "No la operes" in t
+    assert "Compra de TSLA registrada" in t and "Liquidez en trii: TSLA casi no se negocia. No compres más de esta; si vendes, que sea con orden límite y sin prisa." in t
     e = F.plano(S.resp_texto(c, "compré 10000 ecopetrol a 2775")["texto"])
     assert "Liquidez de ECOPETROL en trii: buena" in e
 
@@ -129,11 +129,13 @@ def test_la_cartera_y_el_semaforo_recuerdan_lo_que_se_negocia_poco_y_callan_lo_q
     for frase in ("compré 20 tesla a 384", "compré 10000 ecopetrol a 2775", "compré 24 nvda a 240", "compré 925 nuco a 15,2"):
         S.resp_texto(c, frase)
     t = F.plano(S.resp_cartera(c))
-    assert "Liquidez de TSLA en trii: MALA" in t and "Liquidez de NVDA en trii: JUSTA" in t
-    assert "Liquidez de ECOPETROL" not in t and "Liquidez de NUCO" not in t                           # lo bueno y lo que no se puede medir no hacen ruido
+    assert t.count("💧") == 1                                                                         # UNA línea, no un párrafo por acción
+    linea = next(l for l in t.splitlines() if l.startswith("💧"))
+    assert "TSLA" in linea and "casi no se negocia" in linea and "NVDA se negocia poco o a ratos" in linea and "No compres más de estas" in linea and "/liquidez" in linea
+    assert "ECOPETROL" not in linea                                                                   # lo que se negocia bien no hace ruido
     monkeypatch.setattr(S, "evaluar_activo", lambda f, tk, *a, **k: (mk_res(VERDE, ticker=tk), None, {}))
     s = F.plano(S.resp_semaforo(c))
-    assert "TSLA: VERDE" in s and "Liquidez de TSLA en trii: MALA" in s and s.count("Liquidez de") == 2
+    assert "TSLA: VERDE" in s and s.count("💧") == 1 and "TSLA casi no se negocia" in s and "NVDA se negocia poco o a ratos" in s
 
 
 def test_una_accion_de_la_bvc_con_dias_sin_negociar_no_entra_a_las_recomendaciones():
@@ -158,9 +160,9 @@ def test_que_comprar_muestra_la_liquidez_y_pide_orden_limite():
 def test_el_comando_liquidez_aprueba_o_rechaza_antes_de_comprar(tmp_path):
     c = ctx(tmp_path, FuentesLiq(LIBROS, precios=PRECIOS, trm=3200.0))
     t = F.plano(S.resp_liquidez(c, ["tesla"]))
-    assert "TSLA — ⛔ NO APTA: no pasa el filtro de liquidez en trii." in t and "MALA" in t and "día normal de al menos $ 3.000 millones, estable en 3 meses" in t
+    assert "TSLA — ⛔ NO APTA para comprar: no pasa el filtro de liquidez en trii." in t and "MALA" in t and "día normal de al menos $ 3.000 millones, estable en 3 meses" in t
     assert "ECOPETROL — ✅ APTA" in F.plano(S.resp_liquidez(c, ["ecopetrol"]))
-    assert "NUCO — ⛔ NO APTA: no puedo comprobar su liquidez" in F.plano(S.resp_liquidez(c, ["nuco"]))
+    assert "NUCO — ⛔ NO APTA para comprar: no puedo comprobar su liquidez" in F.plano(S.resp_liquidez(c, ["nuco"]))
     assert "Cómo usar /liquidez" in S.resp_liquidez(c, []) and "❌" in S.resp_liquidez(c, ["fabricato"])
     S.resp_texto(c, "compré 20 tesla a 384")
     S.resp_texto(c, "compré 10000 ecopetrol a 2775")
@@ -255,7 +257,7 @@ def test_la_que_mueve_plata_pero_se_negocia_a_ratos_no_se_aprueba():
     assert l["nivel"] == _LQ.JUSTA and l["a_ratos"]
     t = _LQ.frase(l)
     assert "JUSTA" in t and "se negocia a ratos" in t and "63%" in t and "pido 65%" in t and "pausas de unos 25 minutos" in t and "orden límite" in t
-    assert _LQ.veredicto(l, es_bvc=True) == (False, "⛔ NO APTA: mueve buena plata al día, pero se negocia a ratos.")
+    assert _LQ.veredicto(l, es_bvc=True) == (False, "⛔ NO APTA para comprar: mueve buena plata al día, pero se negocia a ratos.")
     seguido = _LQ.exigir_continuidad(buena, dict(mediana=0.86, flojo=0.79, pausa=15.0, dias=21), _CFG_C)
     assert seguido["nivel"] == _LQ.BUENA and "Hay operaciones en el 86% del día" in _LQ.frase(seguido)
     flojo = _LQ.exigir_continuidad(buena, dict(mediana=0.70, flojo=0.40, pausa=20.0, dias=21), _CFG_C)

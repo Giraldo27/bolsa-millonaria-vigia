@@ -255,7 +255,8 @@ banco:
   max_hilos: 6                              # consultas en paralelo al armar el banco
   top_n: 7
   corr_dias: 60
-  tolerancia_mee: 0.10                      # candidatos con MEE a menos de 10 % del mejor se consideran empatados
+  tolerancia_mee: 0.0                       # 0 = orden estricto por movimiento esperado. Antes 0.10 ("empatados" y se reordenaban por parecido): hacía que
+                                            # /comprar nombrara una acción y /banco otra. Una sola lista, un solo nombre en todas las respuestas.
   vol_rel_desempate: 1.5
   liquidez_min_usd_mm: 150                  # valor negociado diario mínimo de acciones MGC/ETF (millones de USD)
   liquidez_min_cop_mm_locales: 3000         # acciones locales (millones de COP por día); además deben pasar el filtro completo de `liquidez`
@@ -464,7 +465,8 @@ vigia:                                      # proceso continuo (vigia.py): conte
   duracion_max_min: 330                     # cada eslabón vive 5 h 30 min (el tope de GitHub es 6 h) y al terminar lanza el siguiente
   monitor_cada_min: 15                      # semáforo de tu cartera (en horario de bolsa)
   guardar_cada_s: 600                       # respaldo periódico de la memoria de titulares vistos. Lo que TÚ registras y cada aviso enviado se respaldan al instante
-  latido_h: 0                               # > 0: manda un "sigo vivo" cada tantas horas (0 = nunca; sólo avisa cuando hay algo)
+  latido_min: 120                           # con la bolsa abierta, si pasan tantos minutos sin ningún aviso automático, manda una línea "sigo vigilando"
+                                            # (para que el silencio no parezca una falla). 0 = nunca.
   vida_minima_s: 240                        # si un eslabón muere antes de esto, NO se relanza (evita un bucle de fallos que gaste minutos) y te avisa
 
 noticias_bvc:
@@ -538,6 +540,9 @@ noticias_bvc:
     - [ECOPETROL, ISA]                                                # Ecopetrol es dueña de la mayoría de ISA
   # Efecto INDIRECTO por sector: una noticia de una empresa puede leerse como señal para sus pares (resultados de un banco → los demás bancos).
   # Sólo se muestra si (a) el tipo de noticia es de los que hablan del negocio del sector y (b) la relación medida entre las dos acciones es firme.
+  # Cómo se nombra en los titulares cada acción de EE. UU. que tienes (para no mostrar como "noticias de la acción" titulares generales del mercado).
+  nombres_eeuu: {NUCO: ["nu holdings", "nubank", "\\bnu\\b"], META: ["\\bmeta\\b", "facebook", "instagram", "whatsapp", "zuckerberg"], TSLA: ["tesla", "musk"],
+                 NVDA: ["nvidia"], AAPL: ["apple", "iphone"], AMZN: ["amazon"], MSFT: ["microsoft"], GOOGL: ["google", "alphabet"]}
   indirectos:
     sectores:
       bancos: {nombre: "bancos", tickers: [PFBCOLOM, BCOLOMBIA, BOGOTA, AVAL, PFAVAL, BHI]}

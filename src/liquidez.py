@@ -248,12 +248,13 @@ def frase(l: dict[str, Any], orden_cop: float | None = None, cfg: dict[str, Any]
         if l["nivel"] == JUSTA:
             return (f"💧 Liquidez de {t} en trii: JUSTA ({por}).{parte} No la recomiendo para entrar. Si la tienes, sal sólo con orden límite y por partes: "
                     "una orden a mercado te vende barato.")
-        return f"💧 Liquidez de {t} en trii: MALA ({por}).{parte} Entrar es fácil, salir no: puedes quedarte sin comprador o vender muy por debajo. No la operes."
+        return (f"💧 Liquidez de {t} en trii: MALA ({por}).{parte} Entrar es fácil, salir no: puedes quedarte sin comprador o vender muy por debajo. "
+                "No la compres; si la tienes, sal con orden límite y sin prisa.")
     if l["nivel"] == JUSTA:
         return (f"💧 Liquidez de {t} en trii: JUSTA ({por}; hoy {acc} acciones).{parte} No la recomiendo. Si la tienes, sal sólo con orden límite y sin apuro: "
                 "una orden a mercado te vende barato.")
     return (f"💧 Liquidez de {t} en trii: MALA ({por}; hoy {acc} acciones).{parte} Entrar es fácil, salir no: "
-            "puedes quedarte sin comprador o vender muy por debajo. No la operes.")
+            "puedes quedarte sin comprador o vender muy por debajo. No la compres; si la tienes, sal con orden límite y sin prisa.")
 
 
 def por_ratos(l: dict[str, Any]) -> str:
@@ -267,7 +268,7 @@ def veredicto(l: dict[str, Any], es_bvc: bool) -> tuple[bool, str]:
     if l["nivel"] == BUENA:
         return False, "⛔ NO la recomiendo: se negocia bien, pero no es de la BVC y mis recomendaciones son sólo de la BVC."
     if l["nivel"] == SIN_DATO:
-        return False, "⛔ NO APTA: no puedo comprobar su liquidez, y lo que no puedo comprobar no lo apruebo."
+        return False, "⛔ NO APTA para comprar: no puedo comprobar su liquidez, y lo que no puedo comprobar no lo apruebo."
     if l.get("a_ratos"):
-        return False, "⛔ NO APTA: mueve buena plata al día, pero se negocia a ratos."
-    return False, "⛔ NO APTA: no pasa el filtro de liquidez en trii."
+        return False, "⛔ NO APTA para comprar: mueve buena plata al día, pero se negocia a ratos."
+    return False, "⛔ NO APTA para comprar: no pasa el filtro de liquidez en trii."

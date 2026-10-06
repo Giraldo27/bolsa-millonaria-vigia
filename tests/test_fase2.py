@@ -386,7 +386,9 @@ def test_orden_mee_con_tolerancia_correlacion_catalizador_y_desempate():
           cand("UBER", 0.093, corr=0.20, reporte_antes_corte="2026-10-28"), cand("GOOGL", 0.093, corr=0.20, vol_rel=2.0, z=0.5),
           cand("MSFT", 0.080, corr=0.0)]
     cs = [c for c in cs if c.ticker != "A_"]
-    t = tickers(construir_banco(cs, "TSLA", CFG))
+    con_empates = {**CFG, "banco": {**CFG["banco"], "tolerancia_mee": 0.10}}
+    assert tickers(construir_banco(cs, "TSLA", CFG)) == ["META", "AMZN", "UBER", "GOOGL", "MSFT"]      # configuración actual (tolerancia 0): orden estricto por movimiento
+    t = tickers(construir_banco(cs, "TSLA", con_empates))
     # grupo empatado (MEE a menos de 10 % de 0,100): menor correlación primero; entre iguales, con catalizador; luego desempate; MSFT después
     assert t == ["UBER", "GOOGL", "AMZN", "META", "MSFT"] and t[-1] == "MSFT"
 
@@ -459,8 +461,10 @@ def test_si_ninguno_cumple_el_multiplo_mantiene_y_muestra_el_mejor_ratio():
 
 def test_elige_el_primero_del_banco_que_cumple_no_el_de_mayor_mee_si_hay_empate():
     cs = [cand("META", 0.100, corr=0.60), cand("AMZN", 0.096, corr=0.10)]
-    d, _ = regla_maestra(ctx(mia=6.0), cs, CFG)
-    assert d.accion == CAMBIAR and d.candidato == "AMZN"          # empatados (< 10 %): gana la menor correlación
+    d, _ = regla_maestra(ctx(mia=6.0), cs, {**CFG, "banco": {**CFG["banco"], "tolerancia_mee": 0.10}})
+    assert d.accion == CAMBIAR and d.candidato == "AMZN"          # con tolerancia: empatados (< 10 %), gana la menor correlación
+    d0, _ = regla_maestra(ctx(mia=6.0), cs, CFG)
+    assert d0.accion == CAMBIAR and d0.candidato == "META"        # configuración actual (tolerancia 0): la de mayor movimiento, la misma que nombran todas las respuestas
 
 
 CFG_NEGRO = make_cfg()                                              # el modo NEGRO sigue existiendo: se activa a propósito (en config.yaml viene apagado, Fase 3)

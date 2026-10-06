@@ -54,9 +54,9 @@ def c(tmp_path, monkeypatch):
 
 def test_ganar_junta_todos_los_filtros_y_concluye_con_la_que_mas_se_mueve(c):
     t = F.plano(A.resp_ganar(c))
-    for parte in ("Movimiento hasta el final", "Semáforo", "Macro hoy", "Noticias", "Costo de cambiar", "Liquidez en trii"):
+    for parte in ("Movimiento esperado", "Semáforo", "Macro hoy", "Noticias", "Costo de cambiar", "Liquidez en trii"):
         assert parte in t
-    assert "NUCO ±15,3%" in t and "PFGRUPOARG, ±9,9% (0,64 veces)" in t and "ninguna noticia fuerte" in t
+    assert "NUCO ±15,3%" in t and "PFGRUPOARG: ±9,9%, o sea 0,64 veces lo de NUCO" in t and "ninguna noticia fuerte" in t
     assert "La que más opción te da de quedar arriba es la que ya tienes: NUCO" in t and "Su punto débil es la liquidez: no compres más" in t
     assert "TSLA" not in t and "No sé cómo vas en el ranking" in t and "no garantiza ganar" in t and "Ningún filtro predice" in t
     sin_jerga(t)
@@ -77,8 +77,8 @@ def test_ganar_avisa_si_una_liquida_se_mueve_bastante_mas_y_usa_el_ranking(c, mo
 def test_reemplazo_ordena_por_movimiento_y_separa_la_mas_parecida_de_la_que_pasa_todo_el_filtro(c):
     t = F.plano(A.resp_reemplazo(c, ["nuco"]))
     assert "¿Cuál puede reemplazar a NUCO?" in t and "NUCO se espera que se mueva ±15,3%" in t
-    assert "1. GRUPOARGOS: ±13,8% (0,90 veces NUCO) · 🟡 liquidez justa: se negocia a ratos (63% del día) · tu posición sería 1,2% de lo que negocia en un día" in t
-    assert "2. PFGRUPOARG: ±9,9% (0,64 veces NUCO) · ✅ liquidez buena (operaciones en el 86% del día)" in t
+    assert "1. GRUPOARGOS: ±13,8% · 0,90 veces NUCO · 🟡 liquidez justa: se negocia a ratos (63% del día) · tu posición sería 1,2% de lo que negocia en un día" in t
+    assert "2. PFGRUPOARG: ±9,9% · 0,64 veces NUCO · ✅ liquidez buena (operaciones en el 86% del día)" in t and "pídeme /revisar pfgrupoarg" in t
     assert "La que más se le acerca es GRUPOARGOS: conserva cerca del 90% de su movimiento" in t and "se queda fuera del filtro de liquidez por poco" in t
     assert "Si quieres una que pase todo el filtro: PFGRUPOARG" in t and "Cuesta cerca de 1,3%" in t and "no dice hacia dónde" in t
     assert "TSLA" not in t and "GEB" not in t                                              # ni las de EE. UU. ni las que se negocian a ratos lejos del corte
@@ -100,8 +100,9 @@ def test_revisar_dice_lo_que_la_accion_tiene_hoy_a_favor_y_en_contra(c, monkeypa
     monkeypatch.setattr(M, "sensibilidades", lambda f, cfg, tickers: {"petroleo": {"ECOPETROL": {"beta": 0.3}}})
     monkeypatch.setattr(S, "buscar_noticias", noticias(("ECOPETROL", "Polémica del presidente de Ecopetrol con medios", -1, False), ("ECOPETROL", "Terminó la campaña exploratoria", 0, True),
                                                        ("PFBCOLOM", "Otra empresa", 1, False)))
+    monkeypatch.setattr(S, "evaluar_activo", lambda f, t, ahora, cfg, est, p, m: (mk_res(VERDE, ticker=t, r_hoy=-0.013, z=-0.6), None, None))      # la acción también baja: sigue al petróleo
     t = F.plano(A.resp_revisar(c, ["ecopetrol"]))
-    assert "¿Compro ECOPETROL hoy?" in t and "sube 1,9% hoy" in t and "cerca de ±2,9% hasta el corte" in t
+    assert "¿Compro ECOPETROL hoy?" in t and "baja 1,3% hoy" in t and "cerca de ±2,9% hasta el corte" in t and "(a las 10:00, frente al cierre de ayer)" in t
     assert "el petróleo (Brent) cae 2,0% → a ECOPETROL suele restarle 0,6%" in t
     assert "🔴 Polémica del presidente" in t and "⚪ Terminó la campaña exploratoria (oficial, Valora Analitik)" in t and "Otra empresa" not in t
     assert "A favor: se compra y se vende fácil en trii." in t and "En contra: la macro de hoy la empuja hacia abajo" in t and "más negativas que positivas" in t

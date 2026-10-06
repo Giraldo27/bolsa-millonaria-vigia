@@ -44,7 +44,7 @@ def sugerencias(tenidos: list[str], liquidez: dict[str, dict[str, Any]], banco: 
         parte = ""
         if tuyo and l["mediana_mm"]:
             pct = tuyo / (l["mediana_mm"] * 1e6) * 100
-            parte = f" Lo que tienes (≈ $ {tuyo / 1e6:,.1f} millones) es {'menos del 1' if pct < 1 else f'el {pct:,.0f}'} % de todo lo que se negocia en un día.".replace(",", "§").replace(".", ",").replace("§", ".")
+            parte = f" Lo que tienes (≈ $ {tuyo / 1e6:,.1f} millones) es {'menos del 1' if pct < 1 else f'el {pct:,.0f}'} % de todo lo que se negocia en un día".replace(",", "§").replace(".", ",").replace("§", ".") + "."
         out.append(dict(de=t, a=destino.ticker, tipo="liquidez",
                         motivo=f"{t} casi no se negocia en trii (unos {med} al día; hoy {l['acciones_hoy']:,.0f} acciones).".replace(",", ".") + parte
                                + " Si necesitas salir rápido puedes quedarte sin comprador o vender muy por debajo.",

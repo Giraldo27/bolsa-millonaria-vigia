@@ -77,6 +77,12 @@ class Vigia:
             log.info("noticias: %d aviso(s) enviados", len(msgs))
             self.guardar(True)                                                          # lo ya avisado se respalda enseguida: si la máquina muere, no se repite el aviso
 
+    def latido(self) -> None:
+        """Si la bolsa está abierta y llevan mucho rato sin salir avisos, una línea para que el silencio no parezca una falla."""
+        m = S.latido(S.crear_contexto(), self.mem, float(self.v.get("latido_min") or 0))
+        if m:
+            log.info("latido: sin avisos en %s min", self.v.get("latido_min"))
+
     def calentar(self) -> None:
         """Deja calculado lo pesado (liquidez de cada acción, relaciones entre empresas del mismo grupo) para que un aviso importante salga sin esperar."""
         from src import macro as M
@@ -119,7 +125,8 @@ class Vigia:
         ctx = S.crear_contexto()
         if not (C.mercado_abierto(ctx.ahora, self.cfg) or self.banco is None):
             return
-        self.banco = S.banco_bvc(ctx)
+        from src import analisis as AN
+        self.banco = AN.banco_revisado(ctx)[0]                                           # sólo las que hoy no tienen más en contra que a favor (el mismo chequeo de /revisar)
         corte = C.corte_vigente(ctx.ahora, self.cfg)
         self.sugerencia = dict(ticker=self.banco[0].c.ticker, mee=self.banco[0].c.mee, corte=corte["fecha"]) if (self.banco and corte) else None
         if self.cfg["cambios"].get("activo"):                                           # ¿hay un cambio "esta por esta" que valga la pena avisar?
@@ -219,7 +226,8 @@ class Vigia:
                       asyncio.create_task(self.bucle("guardar", 30, self.guardar, 45)),
                       asyncio.create_task(self.bucle("monitor", self.v["monitor_cada_min"] * 60, self.monitor, 20)),
                       asyncio.create_task(self.bucle("radar", 120, self.radar, 30)),
-                      asyncio.create_task(self.bucle("sugerencia", 1800, self.sugerir, 90))]
+                      asyncio.create_task(self.bucle("sugerencia", 1800, self.sugerir, 90)),
+                      asyncio.create_task(self.bucle("latido", 300, self.latido, 600))]
             if n["activo"]:
                 tareas.append(asyncio.create_task(self.bucle("noticias", n["cada_s"], self.noticias, 5)))
             if self.cfg["macro_vivo"].get("activo"):
