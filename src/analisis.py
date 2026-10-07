@@ -169,8 +169,10 @@ def chequeo(ctx: S.Contexto, t: str, est: Any, comun: dict[str, Any] | None = No
                      + "; ".join(f"{F.esc(nom)} {'sube' if c >= 0 else 'cae'} {F.pct(abs(c), 1)} → a {F.esc(t)} suele {'sumarle' if e > 0 else 'restarle'} {F.pct(abs(e), 1)}"
                                  for nom, c, e in efectos[:3]) + ".")
             total = sum(e for _, _, e in efectos)
-            sigue = hoy_accion is None or (hoy_accion > 0) == (total > 0)
-            if abs(total) >= 0.005 and not sigue:
+            sigue = hoy_accion is not None and (hoy_accion > 0) == (total > 0)
+            if abs(total) >= 0.005 and hoy_accion is None:                             # aún no hay precio de HOY de la acción: no se puede decir que lo sigue
+                L.append(F.it(f"  Todavía no tengo el precio de hoy de {F.esc(t)} para confirmar que lo esté siguiendo: no lo cuento ni a favor ni en contra."))
+            elif abs(total) >= 0.005 and not sigue:
                 L.append(F.it(f"  Pero hoy {F.esc(t)} no lo está siguiendo ({'sube' if hoy_accion >= 0 else 'baja'} {F.pct(abs(hoy_accion), 1)}): ese efecto es lo que SUELE pasar, "
                               "no lo que está pasando. No lo cuento ni a favor ni en contra."))
             elif total <= -0.005:

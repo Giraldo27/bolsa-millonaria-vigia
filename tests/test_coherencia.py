@@ -196,3 +196,15 @@ def test_ganar_y_reemplazo_no_se_contradicen_sobre_cual_se_mueve_mas(c, monkeypa
     for texto in (g, r):                                                                   # el mismo número y la misma candidata líquida en los dos
         assert "±4,0% hasta el corte" in texto and "BCOLOMBIA" in texto
     assert "/revisar bcolombia" in g and "/revisar bcolombia" in r
+
+
+def test_sin_precio_de_hoy_la_macro_tampoco_se_cuenta(c, monkeypatch):
+    """Caso real (7-oct-2026, 8:46): el dato de la acción era de ayer y aun así se decía "la macro la favorece y la acción lo está siguiendo"."""
+    tab, sens = petroleo(+0.03)
+    monkeypatch.setattr(M, "tablero", tab)
+    monkeypatch.setattr(M, "sensibilidades", sens)
+    monkeypatch.setattr(S, "evaluar_activo", lambda f, t, ahora, cfg, est, p, m: (mk_res(VERDE, ticker=t, r_hoy=-0.009, z=-0.4, fecha=dt.date(2026, 10, 5)), None, None))
+    ch = A.chequeo(c, "ECOPETROL", S.leer_estado(c))
+    t = F.plano("\n".join(ch["lineas"]))
+    assert not any("macro" in x for x in ch["pros"] + ch["contras"])
+    assert "bajó 0,9% en la última sesión (lun 05/10)" in t and "Todavía no tengo el precio de hoy de ECOPETROL para confirmar que lo esté siguiendo" in t
