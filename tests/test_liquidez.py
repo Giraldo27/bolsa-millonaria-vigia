@@ -63,7 +63,8 @@ def test_sin_volumen_fiable_es_sin_dato_nunca_mala_y_nunca_apta():
     assert LQ.veredicto(nuco, es_bvc=False)[0] is False and "no puedo comprobar" in LQ.veredicto(nuco, False)[1]
     buena = LQ.clasificar(*serie([50000] * 60), CFG)
     assert LQ.veredicto(buena, es_bvc=True) == (True, "✅ APTA: pasa el filtro de liquidez (y es de la BVC).")
-    assert LQ.veredicto(buena, es_bvc=False)[0] is False and LQ.veredicto(LQ.clasificar(*serie([184] * 60), CFG), True)[0] is False
+    assert LQ.veredicto(buena, es_bvc=False)[0] is True and "acción extranjera que también se negocia en la Bolsa de Colombia" in LQ.veredicto(buena, False)[1]
+    assert LQ.veredicto(LQ.clasificar(*serie([184] * 60), CFG), True)[0] is False                    # lo que decide es cuánto se negocia en trii, no de dónde es la empresa
 
 
 def test_con_historial_incompleto_no_se_inventa_un_nivel():
@@ -191,12 +192,22 @@ def _sin_dato():
 
 
 def test_lo_que_no_se_podia_medir_ahora_se_mide_con_la_bolsa_y_con_prudencia():
-    """Caso real: NUCO promedia mucho, pero en 2 semanas negoció 2,6 veces lo de 3 meses y su última sesión fue floja → no se aprueba."""
-    l = _LQ.cruzar(_sin_dato(), _fila(17855, 9700, 6908, 826, 16746), _CFG_L, _CERRADA)
-    assert l["nivel"] == _LQ.JUSTA and l["fuente"] == "bvc" and len(l["motivos"]) == 2
+    """Una acción cuyo nivel de 3 meses NO alcanza y que sólo negocia mucho estas dos semanas, con una última sesión floja → no se aprueba."""
+    l = _LQ.cruzar(_sin_dato(), _fila(7000, 3500, 2500, 826, 16746), _CFG_L, _CERRADA)
+    assert l["nivel"] == _LQ.JUSTA and l["fuente"] == "bvc" and len(l["motivos"]) == 3
     t = _LQ.frase(l)
-    assert "JUSTA" in t and "2,6 veces" in t and "última sesión: 16.746 acciones, $ 826 millones" in t and "No la recomiendo" in t
+    assert "JUSTA" in t and "2,8 veces" in t and "última sesión: 16.746 acciones, $ 826 millones" in t and "No la recomiendo" in t
     assert _LQ.veredicto(l, es_bvc=False)[0] is False
+
+
+def test_negociar_mas_que_antes_no_descalifica_si_el_nivel_de_tres_meses_ya_alcanza():
+    """Caso real (NUCO, 7-oct-2026): $ 7.400 millones al día en 3 meses y $ 20.000 millones en las últimas 2 semanas. El filtro la rechazaba por "volumen de
+    pocos días"; negociar el triple cuando ya negociaba de sobra es más liquidez, no menos."""
+    l = _LQ.cruzar(_sin_dato(), _fila(19947, 10442, 7422, 19795, 391988), _CFG_L, _CERRADA)
+    assert l["nivel"] == _LQ.BUENA and l["motivos"] == [] and l["mediana_mm"] == 7422
+    assert "buena" in _LQ.frase(l) and "según la Bolsa de Colombia" in _LQ.frase(l)
+    floja = _LQ.cruzar(_sin_dato(), _fila(19947, 10442, 7422, 900, 18000), _CFG_L, _CERRADA)        # pero una última sesión floja sí la frena
+    assert floja["nivel"] == _LQ.JUSTA and len(floja["motivos"]) == 1
 
 
 def test_con_la_bolsa_solo_se_aprueba_lo_estable_y_nunca_se_sube_lo_ya_medido():

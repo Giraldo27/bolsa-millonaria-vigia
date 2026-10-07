@@ -448,8 +448,9 @@ liquidez:                                   # liquidez REAL en trii = lo que se 
   orden_max_pct: 0.02                       # una posición tuya de más del 2 % de lo que se negocia en un día se marca como "grande para esta acción"
   continuidad:                              # 5) que se negocie TODO el día y no a ratos (velas de 5 minutos del último mes; la sesión tiene 78 tramos)
     activo: true
-    min: 0.65                               # un día normal: operaciones en al menos el 65 % de los tramos (con este corte pasan 5 acciones de la BVC)
-    min_dia_flojo: 0.55                     # en sus días flojos (percentil 25): al menos el 55 %
+    min: 0.60                               # un día normal: operaciones en al menos el 60 % de los tramos. Antes 0,65: dejaba fuera por 2 puntos a PFSURA y
+                                            # GRUPOARGOS, que mueven miles de millones al día; el usuario pidió no pasarse con este filtro (7-oct-2026).
+    min_dia_flojo: 0.50                     # en sus días flojos (percentil 25): al menos el 50 % (antes 0,55)
     dias_min: 10                            # con menos días medidos no se castiga
     cache_min: 240
   libro_bvc:                                # segunda fuente: lo negociado en la Bolsa de Colombia (locales y globales), con 15 min de retraso

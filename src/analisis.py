@@ -215,7 +215,7 @@ def chequeo(ctx: S.Contexto, t: str, est: Any, comun: dict[str, Any] | None = No
     lq = LQ.medir(ctx.f, t, ctx.cfg)
     L.append(F.esc(LQ.frase(lq, None, ctx.cfg)))
     es_bvc = t in ctx.cfg["universe"]["local"]
-    apta = lq["nivel"] == LQ.BUENA and es_bvc
+    apta = lq["nivel"] == LQ.BUENA                                                     # también una extranjera, si de verdad se negocia bien en Colombia (NUCO)
     if apta:
         pros.append("se compra y se vende fácil en trii")
     veredicto = "sin_liquidez" if not apta else ("en_contra" if len(contras) > len(pros) - 1 else "sin_contras")     # la liquidez sola no basta: hace falta algo más a favor que en contra

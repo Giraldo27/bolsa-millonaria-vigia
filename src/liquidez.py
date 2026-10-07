@@ -110,7 +110,9 @@ def cruzar(l: dict[str, Any], fila: dict[str, Any] | None, cfg: dict[str, Any], 
         if menor < c["buena_cop_mm"]:
             motivos.append(f"en promedio negocia unos $ {mil(menor)} millones al día (pido {mil(c['buena_cop_mm'])})")
         p10, p60 = fila.get("prom10_mm"), fila.get("prom60_mm")
-        if p10 and p60 and p10 > c["libro_bvc"]["concentrado_veces"] * p60:
+        # "Volumen de pocos días" sólo descalifica si el nivel de 3 meses NO alcanza por sí solo. Si en 3 meses ya promedia más de lo que se pide (NUCO:
+        # $ 7.400 millones al día) que además negocie el triple estas semanas es MÁS liquidez, no menos (corregido el 7-oct-2026: el filtro la rechazaba).
+        if p10 and p60 and p60 < c["buena_cop_mm"] and p10 > c["libro_bvc"]["concentrado_veces"] * p60:
             veces = f"{p10 / p60:.1f}".replace(".", ",")
             motivos.append(f"en las últimas 2 semanas negoció {veces} veces lo de los últimos 3 meses: es un volumen de pocos días que puede no durar")
         if not en_sesion(ahora) and fila["valor_ult_mm"] < c["buena_dia_flojo_cop_mm"]:
@@ -266,7 +268,7 @@ def veredicto(l: dict[str, Any], es_bvc: bool) -> tuple[bool, str]:
     if l["nivel"] == BUENA and es_bvc:
         return True, "✅ APTA: pasa el filtro de liquidez (y es de la BVC)."
     if l["nivel"] == BUENA:
-        return False, "⛔ NO la recomiendo: se negocia bien, pero no es de la BVC y mis recomendaciones son sólo de la BVC."
+        return True, "✅ APTA: se negocia bien en trii (es una acción extranjera que también se negocia en la Bolsa de Colombia)."
     if l["nivel"] == SIN_DATO:
         return False, "⛔ NO APTA para comprar: no puedo comprobar su liquidez, y lo que no puedo comprobar no lo apruebo."
     if l.get("a_ratos"):
