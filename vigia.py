@@ -49,6 +49,8 @@ class Vigia:
         self.v = cfg["vigia"]
         self.fin = time.monotonic() + 60 * (minutos or self.v["duracion_max_min"])
         self.lector = N.Lector(cfg)
+        from src import mercado as MK
+        self.lector_m = MK.Lector(cfg) if (cfg.get("noticias_mercado") or {}).get("activo") else None
         self.mem = N.Memoria()
         self.sugerencia: dict[str, Any] | None = None
         self.banco: list[Any] | None = None                                             # candidatas de la BVC (se recalcula cada media hora en horario de bolsa)
@@ -76,6 +78,15 @@ class Vigia:
         if msgs:
             log.info("noticias: %d aviso(s) enviados", len(msgs))
             self.guardar(True)                                                          # lo ya avisado se respalda enseguida: si la máquina muere, no se repite el aviso
+
+    def mercado(self) -> None:
+        """Noticias de mercado (macro, geopolítica, empresas globales) de las fuentes configuradas: una ronda por minuto."""
+        ctx = S.crear_contexto()
+        with self._candado_mem:
+            msgs = S.tick_mercado(ctx, self.lector_m, self.mem)
+        if msgs:
+            log.info("mercado: %d aviso(s) enviados", len(msgs))
+            self.guardar(True)
 
     def latido(self) -> None:
         """Si la bolsa está abierta y llevan mucho rato sin salir avisos, una línea para que el silencio no parezca una falla."""
@@ -228,6 +239,8 @@ class Vigia:
                       asyncio.create_task(self.bucle("radar", 120, self.radar, 30)),
                       asyncio.create_task(self.bucle("sugerencia", 1800, self.sugerir, 90)),
                       asyncio.create_task(self.bucle("latido", 300, self.latido, 600))]
+            if self.lector_m is not None:
+                tareas.append(asyncio.create_task(self.bucle("mercado", self.cfg["noticias_mercado"]["cada_s"], self.mercado, 25)))
             if n["activo"]:
                 tareas.append(asyncio.create_task(self.bucle("noticias", n["cada_s"], self.noticias, 5)))
             if self.cfg["macro_vivo"].get("activo"):

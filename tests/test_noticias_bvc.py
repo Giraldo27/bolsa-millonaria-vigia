@@ -443,12 +443,27 @@ def test_las_empresas_sin_liquidez_buena_en_trii_no_se_avisan_salvo_que_las_teng
     lec = con_base(mem)
     lec.items = [item("Enka de Colombia anuncia dividendo extraordinario y recompra de acciones")]
     poco = Fuentes(vol=5e3)                                                                          # se negocia muy poco
-    assert N.ronda(lec, mem, poco, AHORA, CFG)[0] == []
+    estricto = {**CFG, "noticias_bvc": {**CFG["noticias_bvc"], "avisar_sin_liquidez": False}}
+    assert N.ronda(lec, mem, poco, AHORA, estricto)[0] == []
     lec.items = [item("Enka aprueba recompra de acciones por $20.000 millones")]
-    (s,), _ = N.ronda(lec, mem, poco, bog(2026, 10, 6, 10, 5), CFG, tenidos={"ENKA"})
+    (s,), _ = N.ronda(lec, mem, poco, bog(2026, 10, 6, 10, 5), estricto, tenidos={"ENKA"})
     assert s.ticker == "ENKA" and s.rec["tengo"]                                                     # es tuya: sí te enteras
     lec.items = [item("Celsia gana contrato de energía solar")]
-    assert N.ronda(lec, mem, Fuentes({"CELSIA": None}), bog(2026, 10, 6, 10, 8), CFG)[0] == []      # sin precio no se puede comprobar la liquidez: no se avisa
+    assert N.ronda(lec, mem, Fuentes({"CELSIA": None}), bog(2026, 10, 6, 10, 8), estricto)[0] == []  # sin precio no se puede comprobar la liquidez: no se avisa
+
+
+def test_con_avisar_sin_liquidez_tambien_se_avisa_lo_poco_liquido_marcado_y_sin_recomendar(mem):
+    """Pedido del usuario (11-oct-2026): no perderse ningún movimiento. La noticia de una empresa que se negocia poco sale, marcada, y nunca como compra."""
+    assert CFG["noticias_bvc"]["avisar_sin_liquidez"] is True
+    lec = con_base(mem)
+    lec.items = [item("Gilinski lanza OPA por el 20 % de Enka de Colombia", fuente="Valora Analitik", resumen="La oferta es por $25 por acción y va hasta noviembre."),
+                 item("Lanzan OPA por Enka a $25 por acción", fuente="La República")]
+    senales, _ = N.ronda(lec, mem, Fuentes(vol=5e3), AHORA, CFG)
+    s = senales[0]
+    assert s.ticker == "ENKA" and s.iliquida and not s.rebote and s.nivel != "alto"                  # una OPA daría "alto": aquí no, porque no se puede vender bien
+    t = F.plano(F.msg_noticia_relevante(s, AHORA, CFG, None))
+    assert "ENKA se negocia poco en trii" in t and "te aviso para que no te pierdas el movimiento" in t and "orden límite" in t
+    assert "🔗 " in t and "Resumen: La oferta es por $25 por acción" in t                             # enlace y resumen en todos los avisos
 
 
 def test_con_todas_apagado_vuelve_a_avisar_solo_lo_relevante(mem):
@@ -764,7 +779,8 @@ def test_la_noticia_de_una_empresa_poco_liquida_se_avisa_si_le_pega_de_rebote_a_
     lec = con_base(mem)
     lec.items = [item("Grupo Sura reporta utilidad récord y sube 40 % frente al año anterior", fuente="Valora Analitik"),
                  item("Utilidad de Grupo Sura crece 40 % en el trimestre", fuente="La República")]
-    assert N.ronda(lec, mem, Fuentes({"GRUPOSURA": 0.03}, vol=poco), AHORA, CFG)[0] == []                 # sin efecto indirecto conocido: no se avisa (como antes)
+    estricto = {**CFG, "noticias_bvc": {**CFG["noticias_bvc"], "avisar_sin_liquidez": False}}
+    assert N.ronda(lec, mem, Fuentes({"GRUPOSURA": 0.03}, vol=poco), AHORA, estricto)[0] == []            # sin efecto indirecto conocido y con el filtro estricto: no se avisa
     mem2 = N.Memoria(mem.ruta.with_name("otra.json"))
     lec2 = con_base(mem2)
     lec2.items = list(lec.items)

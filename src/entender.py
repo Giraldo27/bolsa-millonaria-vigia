@@ -38,6 +38,7 @@ PREGUNTA = re.compile(r"(\b(que|cual|cuales|cuando|como) (accion(es)? )?(compro|
 DESHACER = re.compile(r"\b(deshacer|deshaz|deshaga|me equivoque|equivocacion|borra (lo|la) ultim|anula|anular|corrige lo ultimo|cancela (lo )?ultim)")
 CON_TICKER = ("noticias", "semaforo", "reemplazo", "revisar")                          # consultas que pueden venir con una acción ("noticias de ecopetrol")
 CONSULTAS = [
+    ("mercado", re.compile(r"\b(noticias? (del|de) (mercado|las bolsas|la bolsa|wall street|mundo)|noticias? macro|que (pasa|esta pasando|paso) en (el mercado|los mercados|la bolsa|wall street))\b")),
     ("variaciones", re.compile(r"\b(variacion(es)?|resumen del dia|resumen de hoy|rentabilidad(es)? de (las|cada|todas las) accion(es)?|como (cerraron|cerro la bolsa|va la bolsa|van las acciones|amanecio la bolsa)|cuanto (subieron|bajaron)|que acciones (suben|bajan|subieron|bajaron))\b")),
     ("reemplazo", re.compile(r"\b(reemplaz\w*|sustitu\w*|en (vez|lugar) de|por (cual|que) (la |lo |las )?cambio|cambi\w+ \w+ por (cual|que|otra))\b")),
     ("ganar", re.compile(r"\b(ganar|gane|ganador\w*|todos los filtros|analisis completo|analiza\w* (todo|mi cartera))\b")),

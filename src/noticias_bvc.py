@@ -165,7 +165,8 @@ def items_de_rss(texto: str, fuente: str, origen: str = "rss") -> list[Item]:
             if " - " in titulo:
                 titulo, _, resto = titulo.rpartition(" - ")
                 medio = medio or resto
-        out.append(Item(ts, titulo, "" if origen == "google" else campo("description")[:300], medio, campo("link"), origen))
+        resumen = "" if origen == "google" else (campo("description") or campo("content:encoded"))[:600]      # Bloomberg Línea trae el texto en content:encoded
+        out.append(Item(ts, titulo, resumen, medio, campo("link"), origen))
     return out
 
 
@@ -558,6 +559,7 @@ class Senal:
     impacto: float | None = None            # impacto estimado sobre el precio, con signo (+0,012 = +1,2 %). Si sentido == 0 es la magnitud (se muestra como ±)
     analisis: dict[str, Any] | None = None  # cuando el titular no decía el sentido: resultado de analisis_noticia.analizar (sentido, confianza, motivos, metodo)
     rebote: bool = False                    # la empresa NO pasa el filtro de liquidez: se avisa sólo porque le pega de rebote a acciones que sí (mismo grupo o sector)
+    iliquida: bool = False                  # la empresa se negocia poco en trii: se avisa igual (para no perder el movimiento), marcada y sin recomendación de compra
 
     @property
     def fuentes(self) -> list[str]:
@@ -619,11 +621,14 @@ def ronda(lector: Lector, mem: Memoria, f: Any, ahora: dt.datetime, cfg: dict[st
             continue                                                                   # ni con el precio a favor llegaría: no se gasta una consulta de precios
         ticker, p = elegir_ticker(f, e, cfg, ahora)
         tengo = bool(set(e.tickers) & tenidos)
-        rebote = False
+        rebote = iliquida = False
         if not tengo and (p is None or p["liquidez_mm"] < liq_min):
-            if not (pega_a and pega_a(e, cat)):
+            if pega_a and pega_a(e, cat):
+                rebote = True                                                          # le pega de rebote a una acción que sí se negocia bien
+            elif n.get("avisar_sin_liquidez"):
+                iliquida = True                                                        # se avisa marcada: el usuario no quiere perderse ningún movimiento
+            else:
                 continue                                                               # sin liquidez buena en trii (o sin precio para comprobarla): no se avisa, salvo que la tengas
-            rebote = True                                                              # …o que le pegue de rebote a una acción que sí se negocia bien
         analisis = None
         if c.sentido == 0:                                                             # el titular no dice si sube o baja: se analiza el texto (y el artículo, y el modelo si hay clave)
             from .analisis_noticia import analizar
@@ -644,7 +649,7 @@ def ronda(lector: Lector, mem: Memoria, f: Any, ahora: dt.datetime, cfg: dict[st
             nivel = "bajo"
         else:
             continue
-        if rebote and nivel == "alto":
+        if (rebote or iliquida) and nivel == "alto":
             nivel = "medio"                                                            # nunca se recomienda comprar una acción que no pasa el filtro: aviso informativo
         items = sorted(g["items"], key=lambda i: (i.origen != "sfc", -i.ts.timestamp()))
         previos = [x[1] for x in titulos.get(nombre, [])]
@@ -665,7 +670,7 @@ def ronda(lector: Lector, mem: Memoria, f: Any, ahora: dt.datetime, cfg: dict[st
         rec = recomendar(cat, sentido or 1, ticker, p, ahora, cfg, tengo, estudio, c.sentido)
         base_imp = impacto_estimado(cat, 1, estudio, cfg)
         senales.append(Senal(nombre, ticker, cat, sentido, puntaje, items, rec, ahora_utc, nivel,
-                             (sentido * base_imp if sentido else base_imp) if base_imp is not None else None, analisis, rebote))
+                             (sentido * base_imp if sentido else base_imp) if base_imp is not None else None, analisis, rebote, iliquida))
     senales.sort(key=lambda s: -s.puntaje)                                              # las más importantes salen primero
     if n["max_por_ronda"]:
         senales = senales[: n["max_por_ronda"]]

@@ -432,6 +432,38 @@ macro_vivo:
     oro: {simbolo: "GC=F", nombre: "el oro", controlar: sp500}
   titulares: {ventana_min: 120, min_fuentes: 2, enfriamiento_min: 180}     # un tema macro se avisa si lo traen ≥ 2 medios; máx. una vez cada 3 h por tema
 
+# Vigía de MERCADO (src/mercado.py): noticias macro y financieras de las bolsas, con las acciones y sectores que se benefician o se afectan y por qué.
+# Fuentes pedidas por el usuario (11-oct-2026). bloomberg.com/latinamerica e investing.com/news rechazan a los programas (403): se usan sus canales RSS públicos.
+noticias_mercado:
+  activo: true
+  cada_s: 60                                # una ronda por minuto
+  ventana_min: 180                          # sólo noticias publicadas en las últimas 3 horas
+  enfriamiento_tema_min: 20                 # el mismo tema en la misma dirección no se repite antes de 20 minutos (cada medio publica la misma noticia)
+  max_por_ronda: 4                          # si salen más de 4 a la vez, las demás salen en la ronda siguiente (no se pierden)
+  parecido_repetida: 0.5                    # titular que comparte la mitad de sus palabras con otro ya avisado (12 h) = la misma noticia en otro medio
+  horizonte_sesiones: 5                     # el análisis es de corto plazo: lo que puede moverse cada acción en UNA semana de bolsa
+  max_acciones: 10                          # acciones por aviso con su movimiento esperado y su liquidez
+  superfinanciera: true
+  sfc_cada_rondas: 2
+  rss:                                      # cada_rondas: cada cuántas rondas se consulta (los canales pesados, menos seguido)
+    - {nombre: "Bloomberg Línea", url: "https://www.bloomberglinea.com/arc/outboundfeeds/rss/?outputType=xml", cada_rondas: 5}       # 880 KB por consulta
+    - {nombre: "Bloomberg (mercados)", url: "https://feeds.bloomberg.com/markets/news.rss"}
+    - {nombre: "Bloomberg (economía)", url: "https://feeds.bloomberg.com/economics/news.rss", cada_rondas: 2}
+    - {nombre: "Bloomberg (política)", url: "https://feeds.bloomberg.com/politics/news.rss", cada_rondas: 2}
+    - {nombre: "Bloomberg (tecnología)", url: "https://feeds.bloomberg.com/technology/news.rss", cada_rondas: 3}
+    - {nombre: "Bloomberg (industrias)", url: "https://feeds.bloomberg.com/industries/news.rss", cada_rondas: 3}
+    - {nombre: "Valora Analitik", url: "https://www.valoraanalitik.com/feed/", cada_rondas: 2}
+    - {nombre: "La República", url: "https://www.larepublica.co/rss/", cada_rondas: 2}
+    - {nombre: "Investing.com", url: "https://www.investing.com/rss/news.rss"}
+    - {nombre: "Investing.com (bolsa)", url: "https://www.investing.com/rss/news_25.rss"}
+    - {nombre: "Investing.com (economía)", url: "https://www.investing.com/rss/news_14.rss", cada_rondas: 2}
+    - {nombre: "Investing.com (materias primas)", url: "https://www.investing.com/rss/commodities.rss", cada_rondas: 2}
+    - {nombre: "Investing.com (español)", url: "https://es.investing.com/rss/news.rss", cada_rondas: 2}
+    - {nombre: "Yahoo Finanzas", url: "https://es-us.finanzas.yahoo.com/rss/", cada_rondas: 2}
+  paginas:                                  # portadas sin RSS: se leen los enlaces a las notas
+    - {nombre: "Bloomberg Línea (noticias del día)", url: "https://www.bloomberglinea.com/tags/las-noticias-del-dia/", base: "https://www.bloomberglinea.com", cada_rondas: 3}
+  yahoo_titulares: {activo: true, url: "https://finance.yahoo.com/rss/headline", por_ronda: 10, cada_rondas: 2}     # titulares por acción, rotando por todas las del concurso
+
 cambios:                                    # avisos automáticos "cambia esta acción por esta" (src/cambios.py)
   activo: true
   repetir_h: 24                             # el mismo cambio no se repite antes de este tiempo
@@ -486,6 +518,8 @@ noticias_bvc:
   max_otras_hora: 0                         # 0 = sin tope por hora de "otras noticias" (pedido del usuario). Lo único que se filtra son las repetidas
   impacto_otra: 0.003                       # impacto que se le pone a una noticia que NO es un hecho del negocio (política, notas de color): 0,3 %. Fijado a mano:
                                             # el día de un anuncio "sin tipo" la acción se mueve casi lo mismo que un día cualquiera, o sea que casi no pesa
+  avisar_sin_liquidez: true                 # también se avisan las noticias de empresas que se negocian poco en trii, marcadas así (el usuario no quiere
+                                            # perderse ningún movimiento, 11-oct-2026); nunca salen con recomendación de compra
   parecido_repetida: 0.5                    # un titular que comparte la mitad de sus palabras con otro ya avisado de la misma empresa (12 h) es la misma noticia en otro medio
   enfriamiento_emisor_min: 60               # no repetir avisos de la misma empresa y sentido antes de este tiempo
   timeout_s: 10

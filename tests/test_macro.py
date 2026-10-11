@@ -188,7 +188,11 @@ def test_la_revision_macro_avisa_sola_el_movimiento_y_el_titular_con_botones(tmp
     assert len(out) == 1 and "Movimiento macro fuerte" in out[0] and "ECOPETROL (la tienes)" in F.plano(out[0]) and enviados[0][1] == S.BOTONES_MACRO
     assert S.tick_macro(ctx(tmp_path, Fuentes({"petroleo": -0.06})), mem, []) == []                   # ya avisado hoy
     dos = [item("La FED recorta tasas medio punto", "Portafolio"), item("Reserva Federal baja sus tasas", "La República")]
-    out = S.tick_macro(ctx(tmp_path, Fuentes({"petroleo": -0.06})), mem, dos)
+    assert S.tick_macro(ctx(tmp_path, Fuentes({"petroleo": -0.06})), mem, dos) == []                  # los titulares macro ahora los avisa el vigía de mercado
+    sin_mercado = S.Contexto({**CFG, "noticias_mercado": {**CFG["noticias_mercado"], "activo": False}}, Fuentes({"petroleo": -0.06}), puntuar_vader, "vader", AHORA, False,
+                             tmp_path / "s.json", salida=lambda s: None)
+    S.tick_macro(sin_mercado, mem, [])                                                                # primera pasada: sólo toma la línea base de titulares
+    out = S.tick_macro(sin_mercado, mem, dos)                                                         # con ese vigía apagado, vuelve el aviso de antes
     assert len(out) == 1 and "Noticia macro: Reserva Federal" in F.plano(out[0]) and len(enviados) == 2
     assert "macro_mov" in N.Memoria(tmp_path / "n.json").d                                           # la memoria quedó guardada
 

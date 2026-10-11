@@ -1093,7 +1093,8 @@ def tick_macro(ctx: Contexto, mem: Any, items: list[Any] | None = None) -> list[
         return []
     tab = M.tablero(ctx.f, ctx.cfg, ctx.ahora)
     fuertes = M.movimientos_nuevos(tab, mem.d, ctx.ahora)
-    temas = M.titulares_macro(items or [], mem.d, ctx.ahora, ctx.cfg)
+    # los titulares macro los avisa ahora el vigía de mercado (src/mercado.py), con enlace, resumen y sectores: aquí sólo quedan los movimientos de precio
+    temas = [] if (ctx.cfg.get("noticias_mercado") or {}).get("activo") else M.titulares_macro(items or [], mem.d, ctx.ahora, ctx.cfg)
     mem.sucia = True
     if not fuertes and not temas:
         return []
@@ -1108,6 +1109,73 @@ def tick_macro(ctx: Contexto, mem: Any, items: list[Any] | None = None) -> list[
     if not ctx.dry:
         mem.guardar()
     return mensajes
+
+
+BOTONES_MERCADO = [[("📰 Más noticias de mercado", "c:mercado"), ("🌍 Macro ahora", "c:macro")], [("🛒 Qué comprar", "c:comprar"), ("💼 Mi cartera", "c:cartera")]]
+
+
+def extras_mercado(ctx: Contexto, a: dict[str, Any], lector: Any, est: Estado) -> dict[str, Any]:
+    """Lo que se añade a una noticia de mercado con los indicadores del bot: resumen, cómo va AHORA el factor del tema, cuánto suele moverse cada acción
+    nombrada en una semana y si se negocia en trii. Cada dato falla por separado: sin él, el aviso sale igual."""
+    import math
+
+    from . import liquidez as LQ
+    from . import mercado as MK
+    m = ctx.cfg["noticias_mercado"]
+    it_ = a["item"]
+    resumen = MK.recortar(it_.resumen)
+    if (not resumen or " ".join(resumen.lower().split())[:80] == " ".join(it_.titulo.lower().split())[:80]) and it_.url and hasattr(lector, "resumen_de"):
+        resumen = MK.recortar(lector.resumen_de(it_.url))
+    out: dict[str, Any] = dict(resumen=resumen, tenidos=est.tenidos(), sesiones=m["horizonte_sesiones"], sigma={}, liquidez={}, factor_ahora=None)
+    if a.get("factor"):
+        try:
+            from . import macro as M
+            x = next((x for x in M.tablero(ctx.f, ctx.cfg, ctx.ahora) if x["clave"] == a["factor"]), None)
+            if x:
+                out["factor_ahora"] = F._mov_factor(x)
+        except Exception:                                                              # noqa: BLE001
+            pass
+    for t in (a["beneficiadas"] + a["afectadas"] + a["expuestas"])[: m["max_acciones"]]:
+        try:
+            d = ctx.f.diario(t, 80)
+            s = float(d["Close"].pct_change().dropna().tail(20).std())
+            if s == s and s > 0:
+                out["sigma"][t] = s * math.sqrt(m["horizonte_sesiones"])
+        except Exception:                                                              # noqa: BLE001 — una acción sin historia no tumba el aviso
+            pass
+        try:
+            out["liquidez"][t] = LQ.medir(ctx.f, t, ctx.cfg)["nivel"]
+        except Exception:                                                              # noqa: BLE001
+            pass
+    return out
+
+
+def tick_mercado(ctx: Contexto, lector: Any, mem: Any) -> list[str]:
+    """Una ronda del vigía de mercado (cada minuto): lee las fuentes y avisa cada noticia nueva de mercado con titular, enlace, resumen, acciones beneficiadas
+    y afectadas, sectores con su porqué y el movimiento esperado a una semana."""
+    from . import mercado as MK
+    from . import noticias_bvc as N
+    if not (ctx.cfg.get("noticias_mercado") or {}).get("activo"):
+        return []
+    emisores = N.emisores_cfg(ctx.cfg)
+    nuevas, _ = MK.ronda(lector, mem, ctx.ahora, ctx.cfg, locales=lambda it_: bool(N.emisores_de(it_, emisores)))
+    mensajes = []
+    if nuevas:
+        est = leer_estado(ctx)
+        for a in nuevas:
+            m = F.msg_noticia_mercado(a, extras_mercado(ctx, a, lector, est), ctx.ahora)
+            mensajes.append(m)
+            enviar_o_encolar(ctx, m, BOTONES_MERCADO)
+    if not ctx.dry and getattr(mem, "sucia", False):
+        mem.guardar()
+    return mensajes
+
+
+def resp_mercado(ctx: Contexto) -> str:
+    """/mercado: las últimas noticias de mercado que avisó el vigía (con su enlace y a quién le pegan)."""
+    from . import noticias_bvc as N
+    d = N.Memoria().d.get("mercado") or {}
+    return F.msg_mercado_recientes(d.get("ultimas") or [], d.get("salud") or {}, ctx.ahora)
 
 
 def banco_bvc(ctx: Contexto) -> list[Any]:
@@ -1190,7 +1258,7 @@ def tick_noticias(ctx: Contexto, lector: Any, mem: Any, sugerencia: dict[str, An
         from . import macro as M
         afectadas = M.afectadas_por_noticia(s.ticker, s.impacto, s.sentido, vecinos.get(s.ticker, {}), ctx.cfg, est.tenidos(), s.cat)
         afectadas = [x for x in afectadas if x["propia"] or x["tengo"] or x["ticker"] in liquidas]      # nunca se listan acciones sin liquidez buena en trii
-        if getattr(s, "rebote", False) and not any(not x["propia"] for x in afectadas):
+        if getattr(s, "rebote", False) and not getattr(s, "iliquida", False) and not any(not x["propia"] for x in afectadas):
             continue                                                                   # era sólo por el rebote y el efecto estimado no alcanza el mínimo: no hay nada que avisar
         if s.nivel != "alto":                                                          # relevante u otra noticia de la empresa: aviso corto con su impacto estimado en %
             m = F.msg_noticia_relevante(s, ctx.ahora, ctx.cfg, afectadas)

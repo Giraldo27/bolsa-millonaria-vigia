@@ -648,6 +648,93 @@ def analisis_txt(s: Any) -> list[str]:
     return L
 
 
+def enlace_resumen(n0: Any, n: int = 320) -> list[str]:
+    """El enlace a la nota y un resumen corto (lo que el propio medio publica como descripción). Vacío si la fuente no los trae."""
+    from .mercado import recortar
+    L = []
+    if getattr(n0, "url", ""):
+        L.append(f"🔗 {esc(n0.url)}")
+    if getattr(n0, "resumen", "") and N_norm(n0.resumen) != N_norm(n0.titulo):
+        L.append(f"📝 {b('Resumen')}: {esc(recortar(n0.resumen, n))}")
+    return L
+
+
+def N_norm(s: str) -> str:
+    return " ".join((s or "").lower().split())[:120]
+
+
+def _signo(s: int) -> str:
+    return "🟢" if s > 0 else ("🔴" if s < 0 else "⚪")
+
+
+def msg_noticia_mercado(a: dict[str, Any], extras: dict[str, Any], ahora: dt.datetime) -> str:
+    """Aviso automático de una noticia de MERCADO (macro, geopolítica o una empresa global): titular, enlace, resumen, quién se beneficia y quién se afecta,
+    los sectores con su porqué, cuánto suele moverse cada acción en una semana y si se negocia en trii."""
+    it_ = a["item"]
+    ahora_utc = ahora.astimezone(dt.timezone.utc)
+    tenidos = extras.get("tenidos") or set()
+    flecha = {1: " ⬆️", -1: " ⬇️", 0: ""}[a["direccion"]]
+    if a["tipo"] == "empresa":
+        titulo = "Noticia de empresa global: " + ", ".join(a["empresas"])
+    else:
+        titulo = "Noticia de mercado: " + " y ".join(a["nombres"])
+    marca = lambda t: esc(t) + (" (la tienes)" if t in tenidos else "")                 # noqa: E731
+    L = [f"📰 {b(titulo)}{flecha}  {it(f'{fecha(ahora)} {ahora:%H:%M}')}", b("«" + esc(it_.titulo[:300]) + "»"),
+         it(f"{esc(it_.fuente)} · {hace(it_.ts.isoformat(), ahora_utc)}")]
+    if it_.url:
+        L.append(f"🔗 {esc(it_.url)}")
+    L.append(f"📝 {b('Resumen')}: {esc(extras['resumen'])}" if extras.get("resumen") else it("La fuente no trae resumen: abre el enlace para leer la nota."))
+    if extras.get("factor_ahora"):
+        L.append(f"📡 {b('Ahora en el mercado')}: {esc(extras['factor_ahora'])}.")
+    L.append("")
+    if a["beneficiadas"]:
+        L.append(f"🟢 {b('Se benefician')}: " + ", ".join(marca(t) for t in a["beneficiadas"][:12]))
+    if a["afectadas"]:
+        L.append(f"🔴 {b('Se afectan')}: " + ", ".join(marca(t) for t in a["afectadas"][:12]))
+    if a["expuestas"]:
+        L.append(f"⚪ {b('Expuestas' if (a['beneficiadas'] or a['afectadas']) else 'Expuestas (el titular no dice hacia dónde)')}: " + ", ".join(marca(t) for t in a["expuestas"][:12]))
+    L += ["", f"🏭 {b('Sectores y por qué')}"]
+    for s in a["sectores"][:6]:
+        extra = ""
+        if s["signo"] == 0 and s.get("base") and s.get("que"):                          # sin dirección en el titular: se dice en qué caso gana
+            extra = f" Gana si {s['que']} {'sube' if s['base'] > 0 else 'baja'}."
+        L.append(f"{_signo(s['signo'])} {b(esc(s['nombre']))} ({', '.join(esc(t) for t in s['tickers'][:8])}): {esc(s['porque'])}.{extra}")
+    sig, liq = extras.get("sigma") or {}, extras.get("liquidez") or {}
+    if sig:
+        L += ["", f"📏 {b('A una semana')} {it('(lo que suele moverse cada una en ' + str(extras.get('sesiones', 5)) + ' sesiones, para arriba o para abajo)')}: "
+                  + " · ".join(f"{esc(t)} ±{pct(v, 1)}" for t, v in sig.items())]
+    if liq:
+        bien = [t for t, v in liq.items() if v == "buena"]
+        poco = [t for t, v in liq.items() if v != "buena"]
+        L.append(f"💧 {b('En trii')}: " + "; ".join(([f"se negocian bien {', '.join(esc(t) for t in bien)}"] if bien else [])
+                                                   + ([f"se negocian poco {', '.join(esc(t) for t in poco)} (entrar es fácil, salir no)"] if poco else [])) + ".")
+    L.append(it("Lectura automática: dice a quién expone la noticia y por qué, no cuánto va a subir. Antes de comprar una, pídeme /revisar y su nombre."))
+    return "\n".join(L)
+
+
+def msg_mercado_recientes(ultimas: list[dict[str, Any]], salud: dict[str, bool], ahora: dt.datetime, n: int = 10) -> str:
+    """/mercado: las últimas noticias de mercado avisadas, con su enlace y a quién le pegan."""
+    ahora_utc = ahora.astimezone(dt.timezone.utc)
+    bien = sum(1 for v in salud.values() if v)
+    L = [f"📰 {b('Noticias de mercado')}  {it(f'{fecha(ahora)} {ahora:%H:%M}')}"]
+    if salud:
+        mal = [k for k, v in salud.items() if not v]
+        L.append(it(f"Fuentes respondiendo: {bien} de {len(salud)}" + (f" · sin respuesta: {', '.join(mal[:4])}" if mal else "")))
+    if not ultimas:
+        L += ["", "Todavía no he avisado ninguna noticia de mercado. Reviso las fuentes cada minuto y te aviso en cuanto salga una."]
+        return "\n".join(L)
+    for x in ultimas[-n:][::-1]:
+        tema = ", ".join(x.get("empresas") or x.get("nombres") or [])
+        L += ["", f"{ {1: '⬆️', -1: '⬇️', 0: '↕️'}[x.get('direccion', 0)] } {b(esc(tema))} · {it(esc(x['fuente']) + ', ' + hace(x['ts'], ahora_utc))}", f"«{esc(x['titulo'][:200])}»"]
+        if x.get("url"):
+            L.append(f"🔗 {esc(x['url'])}")
+        partes = ([f"🟢 {', '.join(x['beneficiadas'][:6])}"] if x.get("beneficiadas") else []) + ([f"🔴 {', '.join(x['afectadas'][:6])}"] if x.get("afectadas") else []) + \
+                 ([f"⚪ {', '.join(x['expuestas'][:6])}"] if x.get("expuestas") else [])
+        if partes:
+            L.append(" · ".join(esc(p) for p in partes))
+    return "\n".join(L)
+
+
 def msg_noticia_relevante(s: Any, ahora: dt.datetime, cfg: dict[str, Any], afectadas: list[dict[str, Any]] | None = None) -> str:
     """Aviso corto de una noticia RELEVANTE (no llega a alto impacto): qué salió y su impacto estimado en %, con signo."""
     from .noticias_bvc import ETIQUETA
@@ -656,9 +743,12 @@ def msg_noticia_relevante(s: Any, ahora: dt.datetime, cfg: dict[str, Any], afect
     tengo = " · la tienes" if s.rec.get("tengo") else ""
     rebote = ([f"↪️ {b('Te aviso por el efecto indirecto')}: {esc(s.ticker)} no pasa el filtro de liquidez en trii (no la recomiendo), pero su noticia le pega de rebote "
                "a acciones que sí se negocian bien o que tienes."] if getattr(s, "rebote", False) else [])
+    if getattr(s, "iliquida", False):
+        rebote.append(f"⚠️ {b(esc(s.ticker) + ' se negocia poco en trii')}: te aviso para que no te pierdas el movimiento, pero entrar es fácil y salir no. "
+                      "Si la compras, que sea poco y con orden límite.")
     return "\n".join([f"📰 {b(s.emisor + ' (' + s.ticker + ')')} · {esc(ETIQUETA[s.cat])}{tengo}", f"«{esc(n0.titulo[:260])}»",
-                      it(f"{', '.join(esc(x) for x in s.fuentes[:2])} · {hace(n0.ts.isoformat(), ahora_utc)}"), *analisis_txt(s), _impacto_txt(s), *bloque_afectadas(afectadas),
-                      *rebote, _movio_txt(s.rec.get("pulso"), C.mercado_abierto(ahora, cfg)),
+                      it(f"{', '.join(esc(x) for x in s.fuentes[:2])} · {hace(n0.ts.isoformat(), ahora_utc)}"), *enlace_resumen(n0), *analisis_txt(s), _impacto_txt(s),
+                      *bloque_afectadas(afectadas), *rebote, _movio_txt(s.rec.get("pulso"), C.mercado_abierto(ahora, cfg)),
                       it("Noticia informativa: por sí sola no es motivo para comprar ni vender.")])
 
 
@@ -712,7 +802,7 @@ def msg_noticia_bvc(s: Any, ahora: dt.datetime, cfg: dict[str, Any], sugerencia:
     ahora_utc = ahora.astimezone(dt.timezone.utc)
     fuentes = ", ".join(esc(x) for x in s.fuentes[:3])
     L = [f"🚨 {b('Noticia de alto impacto: ' + s.emisor)}  {it(f'{fecha(ahora)} {ahora:%H:%M}')}",
-         f"📰 «{esc(n0.titulo[:300])}»", it(f"{fuentes} · {hace(n0.ts.isoformat(), ahora_utc)}"),
+         f"📰 «{esc(n0.titulo[:300])}»", it(f"{fuentes} · {hace(n0.ts.isoformat(), ahora_utc)}"), *enlace_resumen(n0),
          f"{'📈' if s.sentido > 0 else '📉'} {b('Tipo')}: {esc(ETIQUETA[s.cat])}", *analisis_txt(s), _impacto_txt(s),
          *bloque_afectadas(afectadas), _precio_txt(rec.get("pulso"), C.mercado_abierto(ahora, cfg)), ""]
     cuando = fecha(rec["cuando"]) if rec.get("cuando") else ""
@@ -993,6 +1083,7 @@ No importa si pones el precio en pesos o en dólares, o el total en vez del prec
 /reemplazo nuco — ¿qué acción puede reemplazar a esa? (o: "¿cuál reemplaza a nuco?")
 /revisar ecopetrol — ¿la compro hoy? Precio, macro, noticias y liquidez (o: "¿qué opinas de ecopetrol?")
 /variaciones — rentabilidad de cada acción: hoy, en el concurso y en el último mes (o: "resumen del día")
+/mercado — las últimas noticias de mercado (petróleo, Fed, dólar, Brasil, empresas globales…) con su enlace y a qué acciones les pegan
 /liquidez ecopetrol — ANTES de comprar: ¿esa acción pasa el filtro? (o pregúntame: "¿puedo comprar tesla?")
 /nuevas — actualiza las noticias AHORA (Superfinanciera y prensa) y muestra lo último de cada empresa
 /noticias — las que ya te avisé (o /noticias ECOPETROL)

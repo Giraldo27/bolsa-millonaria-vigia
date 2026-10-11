@@ -35,7 +35,7 @@ MENU = [[("📊 Semáforo", "c:semaforo"), ("💼 Mi cartera", "c:cartera")],
         [("🛒 Qué comprar", "c:comprar"), ("📍 Cómo voy", "c:estado")],
         [("🏆 ¿Con cuál gano?", "c:ganar"), ("📈 Rentabilidad del día", "c:variaciones")],
         [("🔍 ¿Compro esta acción?", "p:revisar"), ("🔁 Reemplazar mi acción", "c:reemplazo")],
-        [("💧 Liquidez de lo mío", "c:liquidez")],
+        [("💧 Liquidez de lo mío", "c:liquidez"), ("📰 Noticias de mercado", "c:mercado")],
         [("➕ Compré", "p:compra"), ("➖ Vendí", "p:venta")],
         [("🏁 Mi ranking", "p:rank")]]
 PENDIENTE_S = 600                                                       # cuánto espera el bot la respuesta a "¿cuántas compraste?"
@@ -162,6 +162,7 @@ def construir_app(token: str, chat_id: int, cfg: dict | None = None) -> Applicat
     comando("macro", lambda c, a: S.resp_macro(c), "⏳ Mirando el petróleo, el dólar, Wall Street y Brasil…")
     comando("liquidez", lambda c, a: S.resp_liquidez(c, a), "💧 Revisando cuánto se negocia en trii…")
     comando("nuevas", lambda c, a: S.resp_nuevas(c), "🔄 Consultando la Superfinanciera y la prensa ahora mismo…")
+    comando("mercado", lambda c, a: S.resp_mercado(c))
     comando("actualizarnoticias", lambda c, a: S.resp_nuevas(c), "🔄 Consultando la Superfinanciera y la prensa ahora mismo…")
     comando("catalizadores", lambda c, a: S.resp_catalizadores(c), "⏳ Buscando fechas importantes…")
     comando("actualizar", lambda c, a: S.resp_actualizar(c), "🔄 Consultando todo de nuevo con datos frescos (cerca de 1 minuto)…", pesado=True)
