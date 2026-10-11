@@ -267,3 +267,14 @@ def test_la_caida_de_los_bonos_es_tasas_al_alza_y_un_ataque_real_si_es_geopoliti
     assert "geopolitica" in riad["temas"] and riad["direccion"] == 1 and "ECOPETROL" in riad["beneficiadas"] and "NUCO" in riad["afectadas"]
     comercio = MK.analizar(item("China Moves to Stave Off Wider EU Trade War With Hybrid Deal"), TODAS)
     assert comercio is None or "geopolitica" not in comercio["temas"]                                            # una guerra comercial no es una guerra
+
+
+@pytest.mark.parametrize("titulo", [
+    "What Could Microsoft (MSFT) Green Card Suspension Mean For Hiring And Compliance?",
+    "EXCLUSIVE: Ross Gerber Says Tesla May Make Just ‘a Few Hundred’ Roadsters: ‘Hovering Is a Gimmick’",
+    "Uber Expects Up to 35% Earnings Growth in Q3. Here’s What Its November 4 Report Needs to Show",
+    "AMD Stock Fell 6% in Three Sessions After Its Record Close. Here’s What OpenAI’s $20 Billion Revenue Gap Means",
+])
+def test_las_notas_de_opinion_que_se_colaron_en_la_nube_ya_no_se_avisan(titulo):
+    """Primeros cuatro avisos reales en la nube (11-oct-2026): notas de comentario de Yahoo, no noticias."""
+    assert MK.analizar(item(titulo), TODAS) is None

@@ -161,7 +161,8 @@ RUIDO = re.compile(r"(precio del dolar hoy|dolar hoy|a como esta|casas de cambio
                    r"quien es quien|receta|cupon|black friday|hot sale|como (hacer|ganar|invertir)|mejores tarjetas|estilo de vida|serie de|pelicula|concierto|que es y como|"
                    r"price target|precio objetivo de|forecast &|analyst predictions|stock forecast|"
                    r"^\d+ \w+|is it (still )?(a|too late to) buy|should you buy|still a buy|better buy|time to buy|stock (is|has) (up|down|surged|soared|jumped) \d|justify (the|its) valuation|"
-                   r"here'?s why|what to (know|watch|expect)|ripe for|income seekers|protect your wealth|prediction for|motley fool|para aprender|herramientas de|mejores aplicaciones|"
+                   r"here.?s (why|what|how)|what to (know|watch|expect)|what (could|would|does|it means)|could mean|means for|needs to show|^exclusive|\bgimmick\b|"
+                   r"ripe for|income seekers|protect your wealth|prediction for|motley fool|para aprender|herramientas de|mejores aplicaciones|"
                    r"trabajar en|empleos abiertos|manijas|\bcv\b)")
 
 
