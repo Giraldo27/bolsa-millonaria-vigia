@@ -265,6 +265,35 @@ class Lector:
         u = cfg["universe"]
         from .data_loader import yahoo_symbol
         self.simbolos = [yahoo_symbol(t, cfg) for t in list(u.get("mgc", [])) + list(u.get("local", []))]
+        self.en_ingles = {f["nombre"] for f in self.m.get("rss", []) if f.get("idioma") == "en"} | {"Yahoo Finance", "Yahoo Finance (por acción)"}
+        self._trad: dict[str, str] = {}
+
+    def traducir(self, texto: str) -> str | None:
+        """Inglés → español. Primero el traductor web de Google (el mismo punto público que usan las librerías de traducción de Python); si falla, MyMemory.
+        Devuelve None si ninguno responde: el aviso sale entonces en inglés y lo dice. Lo ya traducido se recuerda."""
+        t = " ".join((texto or "").split())
+        if not t or not self.m.get("traducir", True):
+            return None
+        if t in self._trad:
+            return self._trad[t] or None
+        salida = ""
+        try:
+            r = self.base._get("https://translate.googleapis.com/translate_a/single", {"client": "gtx", "sl": "en", "tl": "es", "dt": "t", "q": t[:900]}, condicional=False)
+            salida = "".join(seg[0] for seg in r.json()[0] if seg and seg[0]).strip()
+        except Exception:                                                              # noqa: BLE001
+            salida = ""
+        if not salida:
+            try:
+                r = self.base._get("https://api.mymemory.translated.net/get", {"q": t[:480], "langpair": "en|es"}, condicional=False)
+                j = r.json()
+                cand = j["responseData"]["translatedText"]
+                salida = cand.strip() if j.get("responseStatus") == 200 and "MYMEMORY WARNING" not in cand.upper() else ""
+            except Exception:                                                          # noqa: BLE001
+                salida = ""
+        if len(self._trad) > 600:
+            self._trad.clear()
+        self._trad[t] = salida
+        return salida or None
 
     def _rss(self, f: dict[str, Any]) -> list[N.Item]:
         return self.base.rss(f)
@@ -322,6 +351,19 @@ class Lector:
             return N.limpiar(m.group(1)) if m else ""
         except Exception:                                                              # noqa: BLE001
             return ""
+
+
+def resumen_limpio(texto: str, n: int = 260) -> str:
+    """El resumen listo para leer, o '' si lo que trae la fuente no es un resumen sino una ficha pegada sin espacios ("StockCurrent Price: $608. 10Target Price…"),
+    una lista de cifras o el mismo titular repetido."""
+    t = " ".join((texto or "").split())
+    if len(t) < 40:
+        return ""
+    pegadas = len(re.findall(r"[a-záéíóú][A-ZÁÉÍÓÚ]", t[:400]))                         # palabras pegadas: señal de texto extraído de una tabla
+    cifras = sum(ch.isdigit() or ch in "$%~" for ch in t[:400]) / max(len(t[:400]), 1)
+    if pegadas >= 3 or cifras > 0.14 or re.search(r"key stats|read more|click here|sign up|subscribe|cookies", t[:200], re.I):
+        return ""
+    return recortar(t, n)
 
 
 def recortar(texto: str, n: int = 320) -> str:

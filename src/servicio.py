@@ -1123,10 +1123,20 @@ def extras_mercado(ctx: Contexto, a: dict[str, Any], lector: Any, est: Estado) -
     from . import mercado as MK
     m = ctx.cfg["noticias_mercado"]
     it_ = a["item"]
-    resumen = MK.recortar(it_.resumen)
+    resumen = MK.resumen_limpio(it_.resumen)
     if (not resumen or " ".join(resumen.lower().split())[:80] == " ".join(it_.titulo.lower().split())[:80]) and it_.url and hasattr(lector, "resumen_de"):
-        resumen = MK.recortar(lector.resumen_de(it_.url))
-    out: dict[str, Any] = dict(resumen=resumen, tenidos=est.tenidos(), sesiones=m["horizonte_sesiones"], sigma={}, liquidez={}, factor_ahora=None)
+        resumen = MK.resumen_limpio(lector.resumen_de(it_.url))
+    titulo, en_ingles = it_.titulo, False
+    if it_.fuente in getattr(lector, "en_ingles", set()) and hasattr(lector, "traducir"):    # todo el aviso en español
+        t_es = lector.traducir(it_.titulo)
+        titulo, en_ingles = (t_es, False) if t_es else (it_.titulo, True)
+        if resumen:
+            resumen = lector.traducir(resumen) or ""                                   # un resumen a medias en inglés confunde más de lo que ayuda
+    if "/videos/" in (it_.url or "") or "/audio/" in (it_.url or ""):
+        resumen = ""                                                                   # los videos traen la presentación del programa, no un resumen de la noticia
+    if resumen and resumen[-1] not in ".!?…":
+        resumen += "…"
+    out: dict[str, Any] = dict(resumen=resumen, titulo=titulo, en_ingles=en_ingles, tenidos=est.tenidos(), sesiones=m["horizonte_sesiones"], sigma={}, liquidez={}, factor_ahora=None)
     if a.get("factor"):
         try:
             from . import macro as M

@@ -62,7 +62,8 @@ def test_si_el_titular_no_dice_hacia_donde_se_listan_las_expuestas_sin_signo():
     a = MK.analizar(item("La OPEP se reúne el jueves para definir su producción de petróleo"), TODAS)
     assert a["direccion"] == 0 and a["beneficiadas"] == [] and a["afectadas"] == [] and "ECOPETROL" in a["expuestas"]
     t = F.plano(F.msg_noticia_mercado(dict(a, item=item("La OPEP se reúne el jueves para definir su producción de petróleo")), dict(resumen=""), AHORA))
-    assert "Expuestas (el titular no dice hacia dónde): ECOPETROL" in t and "Gana si el precio del petróleo sube." in t and "Gana si el precio del petróleo baja." in t
+    assert "⚪ EXPUESTAS (el titular no dice hacia dónde)" in t and "• Petróleo y gas: ECOPETROL" in t
+    assert "Gana si el precio del petróleo sube." in t and "Gana si el precio del petróleo baja." in t and "SE BENEFICIAN" not in t
 
 
 def test_las_empresas_globales_de_la_bolsa_se_reconocen_y_las_que_solo_opinan_no():
@@ -92,15 +93,59 @@ def test_el_aviso_trae_titular_enlace_resumen_beneficiadas_afectadas_sectores_y_
     a = dict(MK.analizar(it, TODAS), item=it)
     extras = dict(resumen="El Brent subió 5,2% después de un nuevo cruce de fuego entre EE. UU. e Irán.", tenidos={"NUCO"}, sesiones=5, factor_ahora="el petróleo (Brent) sube 4,1%",
                   sigma={"ECOPETROL": 0.044, "PBR": 0.069}, liquidez={"ECOPETROL": "buena", "PBR": "mala"})
-    t = F.plano(F.msg_noticia_mercado(a, extras, AHORA))
-    for esperado in ("Noticia de mercado:", "⬆️", "«Petróleo se dispara más de 5%", "Bloomberg Línea · hace 5 min", "🔗 https://www.bloomberglinea.com/mercados/petroleo-se-dispara/",
-                     "Resumen: El Brent subió 5,2%", "Ahora en el mercado: el petróleo (Brent) sube 4,1%.", "Se benefician: ECOPETROL, PBR", "Se afectan:", "NUCO (la tienes)",
-                     "Sectores y por qué", "🟢 petróleo y gas (ECOPETROL, PBR, CNEC):", "🔴 consumo y transporte", "A una semana", "ECOPETROL ±4,4% · PBR ±6,9%",
-                     "En trii: se negocian bien ECOPETROL; se negocian poco PBR", "no cuánto va a subir"):
+    crudo = F.msg_noticia_mercado(a, extras, AHORA)
+    t = F.plano(crudo)
+    for esperado in ("NOTICIA DE MERCADO", "jue 08/10 · 10:00", "🏷 Petróleo", "⬆️", "Petróleo se dispara más de 5%", "Bloomberg Línea · hace 5 min · Abrir la noticia",
+                     "📝 Qué pasó\nEl Brent subió 5,2%", "📡 Cómo va el mercado\nEl petróleo (Brent) sube 4,1%.", "🟢 SE BENEFICIAN\n• Petróleo y gas: ECOPETROL, PBR, CNEC",
+                     "Venden crudo: cada dólar más en el barril es ingreso directo.", "🔴 SE AFECTAN", "• Consumo y transporte:", "NUCO (la tienes)",
+                     "📏 Cuánto pueden moverse en una semana (para arriba o para abajo)\nECOPETROL ±4,4% · PBR ±6,9%", "💧 Se negocian bien en trii: ECOPETROL",
+                     "⚠️ Se negocian poco en trii: PBR (entrar es fácil, salir no)", "no cuánto va a subir"):
         assert esperado in t, esperado
+    assert '<a href="https://www.bloomberglinea.com/mercados/petroleo-se-dispara/">Abrir la noticia</a>' in crudo      # enlace corto, no la dirección cruda
+    assert t.count("\n\n") >= 6                                                           # por bloques, con aire entre uno y otro
     sin_jerga(t)
     sin = F.plano(F.msg_noticia_mercado(a, dict(resumen=""), AHORA))
-    assert "La fuente no trae resumen: abre el enlace" in sin and "A una semana" not in sin
+    assert "Qué pasó" not in sin and "Cuánto pueden moverse" not in sin and "SE BENEFICIAN" in sin
+
+
+def test_el_aviso_sale_en_espanol_aunque_la_fuente_sea_en_ingles(tmp_path, monkeypatch):
+    """Lo que el usuario vio (11-oct-2026): titular y resumen en inglés, y por resumen una ficha pegada ("StockCurrent Price: $608. 10Target Price…")."""
+    from src import macro as M
+    monkeypatch.setattr(S, "enviar", lambda texto, cfg, botones=None, **k: True)
+    monkeypatch.setattr(LQ, "medir", lambda f, t, cfg: dict(ticker=t, nivel=LQ.MALA))
+    monkeypatch.setattr(M, "tablero", lambda f, cfg, ahora=None: [])
+    ficha = "Key Stats for Advanced Micro Devices StockCurrent Price: $608. 10Target Price (Mid): ~$2,320Street Target: ~$636Potential Total Return: ~281%Annualized IRR: ~37% / yearWhat Happened?"
+    assert MK.resumen_limpio(ficha) == "" and MK.resumen_limpio("corto") == ""
+    assert MK.resumen_limpio("El Brent subió 5,2% después de un nuevo cruce de fuego entre EE. UU. e Irán.").startswith("El Brent subió")
+
+    class Lec(LectorFalso):
+        en_ingles = {"Bloomberg (mercados)"}
+        pedidos: list = []
+
+        def traducir(self, texto):
+            self.pedidos.append(texto)
+            return {"Oil jumps 5% as Middle East tensions rise": "El petróleo salta 5% por el aumento de la tensión en Medio Oriente",
+                    "Brent crude rose after a new exchange of fire between the US and Iran, traders said.": "El Brent subió tras un nuevo cruce de fuego entre EE. UU. e Irán."}.get(texto)
+
+        def resumen_de(self, url):
+            return ficha
+    mem = N.Memoria(tmp_path / "n.json")
+    lec = Lec()
+    c = ctx(tmp_path)
+    S.tick_mercado(c, lec, mem)
+    lec.items = [item("Oil jumps 5% as Middle East tensions rise", fuente="Bloomberg (mercados)", resumen="Brent crude rose after a new exchange of fire between the US and Iran, traders said.")]
+    (m,) = S.tick_mercado(c, lec, mem)
+    t = F.plano(m)
+    assert "El petróleo salta 5% por el aumento de la tensión en Medio Oriente" in t and "Oil jumps" not in t
+    assert "📝 Qué pasó\nEl Brent subió tras un nuevo cruce de fuego" in t and "en inglés" not in t
+    lec.items.append(item("Gold slides as Treasury yields jump to record", fuente="Bloomberg (mercados)", resumen=""))     # sin traducción ni resumen útil
+    (m2,) = S.tick_mercado(c, lec, mem)
+    t2 = F.plano(m2)
+    assert "Gold slides as Treasury yields jump" in t2 and "en inglés (no pude traducirla)" in t2 and "Qué pasó" not in t2 and "Key Stats" not in t2
+    lec.items.append(item("Dólar en Colombia se dispara y la TRM supera los $3.400", fuente="Valora Analitik", minutos=1))
+    n_antes = len(lec.pedidos)
+    S.tick_mercado(c, lec, mem)
+    assert len(lec.pedidos) == n_antes                                                    # lo que ya viene en español no se manda a traducir
 
 
 def test_el_resumen_se_corta_en_frases_completas():
@@ -118,7 +163,7 @@ class LectorFalso:
         return list(self.items), dict(self.salud)
 
     def resumen_de(self, url):
-        return "Resumen tomado de la página de la nota."
+        return "Resumen tomado de la página de la nota, con el detalle."
 
 
 @pytest.fixture
@@ -196,9 +241,9 @@ def test_el_vigia_de_mercado_envia_el_aviso_con_una_semana_y_liquidez_y_guarda_l
     lec.items = [item("Petróleo Brent se dispara 5% y supera los US$105", resumen="")]
     (m,) = S.tick_mercado(c, lec, mem)
     t = F.plano(m)
-    assert "Resumen: Resumen tomado de la página de la nota." in t                          # la fuente no traía resumen: se toma el de la nota
-    assert "Ahora en el mercado: el petróleo (Brent) sube 4,1%" in t and "A una semana" in t and "ECOPETROL ±4,6%" in t
-    assert "se negocian bien ECOPETROL" in t and "se negocian poco" in t and "CNEC ±" not in t  # una acción sin historia no tumba el aviso
+    assert "📝 Qué pasó\nResumen tomado de la página de la nota, con el detalle." in t         # la fuente no traía resumen: se toma el de la nota
+    assert "📡 Cómo va el mercado\nEl petróleo (Brent) sube 4,1%" in t and "Cuánto pueden moverse en una semana" in t and "ECOPETROL ±4,6%" in t
+    assert "Se negocian bien en trii: ECOPETROL" in t and "Se negocian poco en trii" in t and "CNEC ±" not in t  # una acción sin historia no tumba el aviso
     assert enviados[0][1] == S.BOTONES_MERCADO and "mercado" in N.Memoria(tmp_path / "n.json").d
     apagado = S.Contexto({**CFG, "noticias_mercado": {**CFG["noticias_mercado"], "activo": False}}, Fuentes(), puntuar_vader, "vader", AHORA, False, tmp_path / "s.json", salida=lambda s: None)
     lec.items.append(item("Oro sube a máximos"))
@@ -209,7 +254,7 @@ def test_el_comando_mercado_muestra_lo_ultimo_con_enlace(tmp_path, monkeypatch):
     ult = [dict(ts="2026-10-08T14:50:00+00:00", titulo="Petróleo se dispara 5%", fuente="Bloomberg Línea", url="https://e.co/1", nombres=["Petróleo"], empresas=[], direccion=1,
                 beneficiadas=["ECOPETROL", "PBR"], afectadas=["TERPEL"], expuestas=[])]
     t = F.plano(F.msg_mercado_recientes(ult, {"Bloomberg Línea": True, "Investing.com": False}, AHORA))
-    assert "Fuentes respondiendo: 1 de 2 · sin respuesta: Investing.com" in t and "⬆️ Petróleo" in t and "🔗 https://e.co/1" in t and "🟢 ECOPETROL, PBR · 🔴 TERPEL" in t
+    assert "Fuentes respondiendo: 1 de 2 · sin respuesta: Investing.com" in t and "⬆️ Petróleo" in t and "🔗 Abrir la noticia: https://e.co/1" in t and "🟢 ECOPETROL, PBR · 🔴 TERPEL" in t
     assert "Todavía no he avisado ninguna" in F.plano(F.msg_mercado_recientes([], {}, AHORA))
 
 

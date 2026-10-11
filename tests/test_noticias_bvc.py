@@ -463,7 +463,7 @@ def test_con_avisar_sin_liquidez_tambien_se_avisa_lo_poco_liquido_marcado_y_sin_
     assert s.ticker == "ENKA" and s.iliquida and not s.rebote and s.nivel != "alto"                  # una OPA daría "alto": aquí no, porque no se puede vender bien
     t = F.plano(F.msg_noticia_relevante(s, AHORA, CFG, None))
     assert "ENKA se negocia poco en trii" in t and "te aviso para que no te pierdas el movimiento" in t and "orden límite" in t
-    assert "🔗 " in t and "Resumen: La oferta es por $25 por acción" in t                             # enlace y resumen en todos los avisos
+    assert "🔗 Abrir la noticia: https://ejemplo.co/n" in t and "Qué pasó: La oferta es por $25 por acción" in t      # enlace y resumen en todos los avisos
 
 
 def test_con_todas_apagado_vuelve_a_avisar_solo_lo_relevante(mem):

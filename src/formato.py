@@ -650,12 +650,13 @@ def analisis_txt(s: Any) -> list[str]:
 
 def enlace_resumen(n0: Any, n: int = 320) -> list[str]:
     """El enlace a la nota y un resumen corto (lo que el propio medio publica como descripción). Vacío si la fuente no los trae."""
-    from .mercado import recortar
+    from .mercado import resumen_limpio
     L = []
     if getattr(n0, "url", ""):
-        L.append(f"🔗 {esc(n0.url)}")
-    if getattr(n0, "resumen", "") and N_norm(n0.resumen) != N_norm(n0.titulo):
-        L.append(f"📝 {b('Resumen')}: {esc(recortar(n0.resumen, n))}")
+        L.append(f"🔗 {enlace(n0.url)}")
+    resumen = resumen_limpio(getattr(n0, "resumen", ""), n)
+    if resumen and N_norm(resumen) != N_norm(n0.titulo):
+        L.append(f"📝 {b('Qué pasó')}: {esc(resumen)}")
     return L
 
 
@@ -667,48 +668,55 @@ def _signo(s: int) -> str:
     return "🟢" if s > 0 else ("🔴" if s < 0 else "⚪")
 
 
+def enlace(url: str, texto: str = "Abrir la noticia") -> str:
+    """Enlace corto (en vez de la dirección completa, que en el celular ocupa tres renglones)."""
+    return f'<a href="{html.escape(url, quote=True)}">{esc(texto)}</a>' if url else ""
+
+
 def msg_noticia_mercado(a: dict[str, Any], extras: dict[str, Any], ahora: dt.datetime) -> str:
-    """Aviso automático de una noticia de MERCADO (macro, geopolítica o una empresa global): titular, enlace, resumen, quién se beneficia y quién se afecta,
-    los sectores con su porqué, cuánto suele moverse cada acción en una semana y si se negocia en trii."""
+    """Aviso automático de una noticia de MERCADO (macro, geopolítica o una empresa global), en español y por bloques: qué pasó, cómo va el mercado, quién se
+    beneficia y quién se afecta (por sector, con su porqué), cuánto puede moverse cada acción en una semana y cuáles se negocian en trii."""
     it_ = a["item"]
     ahora_utc = ahora.astimezone(dt.timezone.utc)
     tenidos = extras.get("tenidos") or set()
-    flecha = {1: " ⬆️", -1: " ⬇️", 0: ""}[a["direccion"]]
-    if a["tipo"] == "empresa":
-        titulo = "Noticia de empresa global: " + ", ".join(a["empresas"])
-    else:
-        titulo = "Noticia de mercado: " + " y ".join(a["nombres"])
-    marca = lambda t: esc(t) + (" (la tienes)" if t in tenidos else "")                 # noqa: E731
-    L = [f"📰 {b(titulo)}{flecha}  {it(f'{fecha(ahora)} {ahora:%H:%M}')}", b("«" + esc(it_.titulo[:300]) + "»"),
-         it(f"{esc(it_.fuente)} · {hace(it_.ts.isoformat(), ahora_utc)}")]
-    if it_.url:
-        L.append(f"🔗 {esc(it_.url)}")
-    L.append(f"📝 {b('Resumen')}: {esc(extras['resumen'])}" if extras.get("resumen") else it("La fuente no trae resumen: abre el enlace para leer la nota."))
+    palabra = {1: " ⬆️", -1: " ⬇️", 0: ""}[a["direccion"]]
+    tema = ("Empresa: " + ", ".join(a["empresas"])) if a["tipo"] == "empresa" else " y ".join(a["nombres"])
+    marca = lambda t: b(esc(t)) + (" (la tienes)" if t in tenidos else "")              # noqa: E731
+    titulo = extras.get("titulo") or it_.titulo
+    pie = f"{esc(it_.fuente)} · {hace(it_.ts.isoformat(), ahora_utc)}" + (" · en inglés (no pude traducirla)" if extras.get("en_ingles") else "")
+    L = [f"📰 {b('NOTICIA DE MERCADO')}  {it(f'{fecha(ahora)} · {ahora:%H:%M}')}", f"🏷 {b(esc(tema))}{palabra}", "",
+         b(esc(titulo[:300])), it(pie) + (f" · {enlace(it_.url)}" if it_.url else "")]
+    if extras.get("resumen"):
+        L += ["", f"📝 {b('Qué pasó')}", esc(extras["resumen"])]
     if extras.get("factor_ahora"):
-        L.append(f"📡 {b('Ahora en el mercado')}: {esc(extras['factor_ahora'])}.")
-    L.append("")
-    if a["beneficiadas"]:
-        L.append(f"🟢 {b('Se benefician')}: " + ", ".join(marca(t) for t in a["beneficiadas"][:12]))
-    if a["afectadas"]:
-        L.append(f"🔴 {b('Se afectan')}: " + ", ".join(marca(t) for t in a["afectadas"][:12]))
-    if a["expuestas"]:
-        L.append(f"⚪ {b('Expuestas' if (a['beneficiadas'] or a['afectadas']) else 'Expuestas (el titular no dice hacia dónde)')}: " + ", ".join(marca(t) for t in a["expuestas"][:12]))
-    L += ["", f"🏭 {b('Sectores y por qué')}"]
-    for s in a["sectores"][:6]:
-        extra = ""
-        if s["signo"] == 0 and s.get("base") and s.get("que"):                          # sin dirección en el titular: se dice en qué caso gana
-            extra = f" Gana si {s['que']} {'sube' if s['base'] > 0 else 'baja'}."
-        L.append(f"{_signo(s['signo'])} {b(esc(s['nombre']))} ({', '.join(esc(t) for t in s['tickers'][:8])}): {esc(s['porque'])}.{extra}")
+        L += ["", f"📡 {b('Cómo va el mercado')}", esc(extras["factor_ahora"][:1].upper() + extras["factor_ahora"][1:]) + "."]
+
+    def bloque(titulo_b: str, signo: int) -> list[str]:
+        filas = [s for s in a["sectores"] if (s["signo"] > 0) - (s["signo"] < 0) == signo]
+        if not filas:
+            return []
+        out = ["", titulo_b]
+        for s in filas[:4]:
+            cuando = ""
+            if signo == 0 and s.get("base") and s.get("que"):
+                cuando = f" Gana si {s['que']} {'sube' if s['base'] > 0 else 'baja'}."
+            out.append(f"• {b(esc(s['nombre'][:1].upper() + s['nombre'][1:]))}: " + ", ".join(marca(t) for t in s["tickers"][:7]))
+            out.append(f"   {it(esc(s['porque'][:1].upper() + s['porque'][1:]) + '.' + esc(cuando))}")
+        return out
+    L += bloque(f"🟢 {b('SE BENEFICIAN')}", 1) + bloque(f"🔴 {b('SE AFECTAN')}", -1)
+    L += bloque(f"⚪ {b('EXPUESTAS')} {it('(el titular no dice hacia dónde)' if not (a['beneficiadas'] or a['afectadas']) else '(efecto mixto)')}", 0)
     sig, liq = extras.get("sigma") or {}, extras.get("liquidez") or {}
     if sig:
-        L += ["", f"📏 {b('A una semana')} {it('(lo que suele moverse cada una en ' + str(extras.get('sesiones', 5)) + ' sesiones, para arriba o para abajo)')}: "
-                  + " · ".join(f"{esc(t)} ±{pct(v, 1)}" for t, v in sig.items())]
+        L += ["", f"📏 {b('Cuánto pueden moverse en una semana')} {it('(para arriba o para abajo)')}", " · ".join(f"{esc(t)} ±{pct(v, 1)}" for t, v in sig.items())]
     if liq:
         bien = [t for t, v in liq.items() if v == "buena"]
         poco = [t for t, v in liq.items() if v != "buena"]
-        L.append(f"💧 {b('En trii')}: " + "; ".join(([f"se negocian bien {', '.join(esc(t) for t in bien)}"] if bien else [])
-                                                   + ([f"se negocian poco {', '.join(esc(t) for t in poco)} (entrar es fácil, salir no)"] if poco else [])) + ".")
-    L.append(it("Lectura automática: dice a quién expone la noticia y por qué, no cuánto va a subir. Antes de comprar una, pídeme /revisar y su nombre."))
+        L.append("")
+        if bien:
+            L.append(f"💧 {b('Se negocian bien en trii')}: {', '.join(esc(t) for t in bien)}")
+        if poco:
+            L.append(f"⚠️ {b('Se negocian poco en trii')}: {', '.join(esc(t) for t in poco)} {it('(entrar es fácil, salir no)')}")
+    L += ["", it("Lectura automática: dice a quién expone la noticia y por qué, no cuánto va a subir. Antes de comprar una, pídeme /revisar y su nombre.")]
     return "\n".join(L)
 
 
@@ -727,7 +735,7 @@ def msg_mercado_recientes(ultimas: list[dict[str, Any]], salud: dict[str, bool],
         tema = ", ".join(x.get("empresas") or x.get("nombres") or [])
         L += ["", f"{ {1: '⬆️', -1: '⬇️', 0: '↕️'}[x.get('direccion', 0)] } {b(esc(tema))} · {it(esc(x['fuente']) + ', ' + hace(x['ts'], ahora_utc))}", f"«{esc(x['titulo'][:200])}»"]
         if x.get("url"):
-            L.append(f"🔗 {esc(x['url'])}")
+            L.append(f"🔗 {enlace(x['url'])}")
         partes = ([f"🟢 {', '.join(x['beneficiadas'][:6])}"] if x.get("beneficiadas") else []) + ([f"🔴 {', '.join(x['afectadas'][:6])}"] if x.get("afectadas") else []) + \
                  ([f"⚪ {', '.join(x['expuestas'][:6])}"] if x.get("expuestas") else [])
         if partes:

@@ -14,11 +14,12 @@ from typing import Any
 import requests
 
 _ETIQUETAS = re.compile(r"</?(b|i|code)>")
+_ENLACE = re.compile(r'<a href="([^"]+)">(.*?)</a>')
 
 
 def a_plano(texto: str) -> str:
-    """Quita las etiquetas HTML y deshace las entidades (&lt; → <)."""
-    return html.unescape(_ETIQUETAS.sub("", texto))
+    """Quita las etiquetas HTML y deshace las entidades (&lt; → <). Un enlace queda como "texto: dirección" (sin formato, la dirección tiene que verse)."""
+    return html.unescape(_ETIQUETAS.sub("", _ENLACE.sub(r"\2: \1", texto)))
 
 
 def partir(texto: str, largo: int = 3900) -> list[str]:

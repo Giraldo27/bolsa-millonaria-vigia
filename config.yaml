@@ -442,22 +442,23 @@ noticias_mercado:
   max_por_ronda: 4                          # si salen más de 4 a la vez, las demás salen en la ronda siguiente (no se pierden)
   parecido_repetida: 0.5                    # titular que comparte la mitad de sus palabras con otro ya avisado (12 h) = la misma noticia en otro medio
   horizonte_sesiones: 5                     # el análisis es de corto plazo: lo que puede moverse cada acción en UNA semana de bolsa
+  traducir: true                            # los titulares y resúmenes en inglés se pasan al español antes de avisar (si el traductor falla, salen en inglés y se dice)
   max_acciones: 10                          # acciones por aviso con su movimiento esperado y su liquidez
   superfinanciera: true
   sfc_cada_rondas: 2
   rss:                                      # cada_rondas: cada cuántas rondas se consulta (los canales pesados, menos seguido)
     - {nombre: "Bloomberg Línea", url: "https://www.bloomberglinea.com/arc/outboundfeeds/rss/?outputType=xml", cada_rondas: 5}       # 880 KB por consulta
-    - {nombre: "Bloomberg (mercados)", url: "https://feeds.bloomberg.com/markets/news.rss"}
-    - {nombre: "Bloomberg (economía)", url: "https://feeds.bloomberg.com/economics/news.rss", cada_rondas: 2}
-    - {nombre: "Bloomberg (política)", url: "https://feeds.bloomberg.com/politics/news.rss", cada_rondas: 2}
-    - {nombre: "Bloomberg (tecnología)", url: "https://feeds.bloomberg.com/technology/news.rss", cada_rondas: 3}
-    - {nombre: "Bloomberg (industrias)", url: "https://feeds.bloomberg.com/industries/news.rss", cada_rondas: 3}
+    - {nombre: "Bloomberg (mercados)", idioma: en, url: "https://feeds.bloomberg.com/markets/news.rss"}
+    - {nombre: "Bloomberg (economía)", idioma: en, url: "https://feeds.bloomberg.com/economics/news.rss", cada_rondas: 2}
+    - {nombre: "Bloomberg (política)", idioma: en, url: "https://feeds.bloomberg.com/politics/news.rss", cada_rondas: 2}
+    - {nombre: "Bloomberg (tecnología)", idioma: en, url: "https://feeds.bloomberg.com/technology/news.rss", cada_rondas: 3}
+    - {nombre: "Bloomberg (industrias)", idioma: en, url: "https://feeds.bloomberg.com/industries/news.rss", cada_rondas: 3}
     - {nombre: "Valora Analitik", url: "https://www.valoraanalitik.com/feed/", cada_rondas: 2}
     - {nombre: "La República", url: "https://www.larepublica.co/rss/", cada_rondas: 2}
-    - {nombre: "Investing.com", url: "https://www.investing.com/rss/news.rss"}
-    - {nombre: "Investing.com (bolsa)", url: "https://www.investing.com/rss/news_25.rss"}
-    - {nombre: "Investing.com (economía)", url: "https://www.investing.com/rss/news_14.rss", cada_rondas: 2}
-    - {nombre: "Investing.com (materias primas)", url: "https://www.investing.com/rss/commodities.rss", cada_rondas: 2}
+    - {nombre: "Investing.com", idioma: en, url: "https://www.investing.com/rss/news.rss"}
+    - {nombre: "Investing.com (bolsa)", idioma: en, url: "https://www.investing.com/rss/news_25.rss"}
+    - {nombre: "Investing.com (economía)", idioma: en, url: "https://www.investing.com/rss/news_14.rss", cada_rondas: 2}
+    - {nombre: "Investing.com (materias primas)", idioma: en, url: "https://www.investing.com/rss/commodities.rss", cada_rondas: 2}
     - {nombre: "Investing.com (español)", url: "https://es.investing.com/rss/news.rss", cada_rondas: 2}
     - {nombre: "Yahoo Finanzas", url: "https://es-us.finanzas.yahoo.com/rss/", cada_rondas: 2}
   paginas:                                  # portadas sin RSS: se leen los enlaces a las notas
