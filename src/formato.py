@@ -653,7 +653,7 @@ def enlace_resumen(n0: Any, n: int = 320) -> list[str]:
     from .mercado import resumen_limpio
     L = []
     if getattr(n0, "url", ""):
-        L.append(f"🔗 {enlace(n0.url)}")
+        L.append(f"🔗 {enlace(n0.url, 'Abrir el documento oficial (Superfinanciera)' if getattr(n0, 'origen', '') == 'sfc' and 'id-archivo' in n0.url else 'Abrir la noticia')}")
     resumen = resumen_limpio(getattr(n0, "resumen", ""), n)
     if resumen and N_norm(resumen) != N_norm(n0.titulo):
         L.append(f"📝 {b('Qué pasó')}: {esc(resumen)}")

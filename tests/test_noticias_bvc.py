@@ -806,3 +806,42 @@ def test_los_destinos_de_rebote_son_solo_los_que_se_negocian_bien_o_tienes_y_el_
     assert d(["BHI"], "resultados", {"PFBCOLOM"}) == ["PFBCOLOM"]                        # mismo sector: sólo con noticias del negocio…
     assert d(["BHI"], "direccion", {"PFBCOLOM"}) == []                                   # …un nombramiento no
     assert d(["BHI"], "resultados", set(), {"BOGOTA"}) == ["BOGOTA"]                     # lo que tienes siempre cuenta
+
+
+# =============================== los enlaces llevan a la nota exacta ===============================
+def test_el_enlace_de_la_superfinanciera_abre_el_documento_del_anuncio_y_no_la_portada():
+    datos = {"content": [{"fechaRegistro": "2026-10-09T17:53:00.000-0500", "resumen": "Grupo Sura informa el inicio del programa de readquisición de acciones",
+                          "entidad": {"razonSocial": "GRUPO DE INVERSIONES SURAMERICANA S.A."}, "tipoTemaInfoRelevante": {"nombre": "Readquisición de acciones"},
+                          "archivoInfoRelevante": {"idArchivoInfoRelevante": 126981}},
+                         {"fechaRegistro": "2026-10-09T18:10:00.000-0500", "resumen": "Anuncio sin archivo adjunto", "entidad": {"razonSocial": "ISA"}}]}
+    base = "https://www.superfinanciera.gov.co/sfcservices/SIMEV2/informacion-relevante"
+    con, sin = N.items_de_sfc(datos, base, "CLAVE")
+    assert con.url == base + "/archivo-info-relevante/id-archivo/126981?api-key=CLAVE" and sin.url == N.SFC_PORTADA        # sin archivo no hay documento que abrir
+    assert all(i.url == N.SFC_PORTADA for i in N.items_de_sfc(datos))                                                      # sin clave: la portada, como antes
+    t = "\n".join(F.enlace_resumen(con))
+    assert 'Abrir el documento oficial (Superfinanciera)</a>' in t and 'href="' + con.url + '"' in t
+    assert "Abrir la noticia</a>" in "\n".join(F.enlace_resumen(item("Ecopetrol sube")))
+
+
+def test_el_enlace_de_google_noticias_se_cambia_por_el_de_la_nota():
+    import json as _json
+
+    class Http:
+        def __init__(self, ok=True):
+            self.ok, self.pedidos = ok, 0
+
+        def get(self, url, params=None, headers=None, timeout=None):
+            self.pedidos += 1
+            return SimpleNamespace(status_code=200, text='<c-wiz data-n-a-sg="FIRMA" data-n-a-ts="1791700000">' if self.ok else "<html>sin firma</html>", headers={}, raise_for_status=lambda: None)
+
+        def post(self, url, headers=None, data=None, timeout=None):
+            self.pedidos += 1
+            fila = _json.dumps([["wrb.fr", "Fbv4je", _json.dumps(["garturlres", "https://www.pulzo.com/economia/nota-original-PP5327647A"])]])
+            return SimpleNamespace(status_code=200, text=")]}'\n\n" + fila + "\n\n")
+    g = "https://news.google.com/rss/articles/CBMi1gFBVV95cUxNa0RPdWEx?oc=5"
+    lec = N.Lector(CFG, Http(), {})
+    assert lec.enlace_real(g) == "https://www.pulzo.com/economia/nota-original-PP5327647A"
+    antes = lec.http.pedidos
+    assert lec.enlace_real(g).startswith("https://www.pulzo.com") and lec.http.pedidos == antes                            # la respuesta se recuerda
+    assert lec.enlace_real("https://www.valoraanalitik.com/nota/") == "https://www.valoraanalitik.com/nota/"               # lo que no es de Google no se toca
+    assert N.Lector(CFG, Http(ok=False), {}).enlace_real(g) == g                                                            # si Google no responde, queda el enlace que había

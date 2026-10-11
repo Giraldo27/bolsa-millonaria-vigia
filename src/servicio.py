@@ -1266,6 +1266,8 @@ def tick_noticias(ctx: Contexto, lector: Any, mem: Any, sugerencia: dict[str, An
     mensajes = []
     for s in senales:
         from . import macro as M
+        if s.items and s.items[0].origen == "google" and hasattr(lector, "enlace_real"):
+            s.items[0].url = lector.enlace_real(s.items[0].url)                         # el enlace abre la nota, no la página intermedia de Google
         afectadas = M.afectadas_por_noticia(s.ticker, s.impacto, s.sentido, vecinos.get(s.ticker, {}), ctx.cfg, est.tenidos(), s.cat)
         afectadas = [x for x in afectadas if x["propia"] or x["tengo"] or x["ticker"] in liquidas]      # nunca se listan acciones sin liquidez buena en trii
         if getattr(s, "rebote", False) and not getattr(s, "iliquida", False) and not any(not x["propia"] for x in afectadas):

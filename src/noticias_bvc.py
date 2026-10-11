@@ -25,6 +25,7 @@ import os
 import re
 import tempfile
 import unicodedata
+from urllib.parse import quote
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -170,8 +171,13 @@ def items_de_rss(texto: str, fuente: str, origen: str = "rss") -> list[Item]:
     return out
 
 
-def items_de_sfc(datos: Any) -> list[Item]:
-    """Registros de 'Información relevante' de la Superfinanciera → Item (titular = el resumen oficial)."""
+SFC_PORTADA = "https://www.superfinanciera.gov.co/SIMEV2/informacionrelevantegeneral"
+
+
+def items_de_sfc(datos: Any, base: str = "", clave: str = "") -> list[Item]:
+    """Registros de 'Información relevante' de la Superfinanciera → Item (titular = el resumen oficial).
+    Con `base` y `clave` (la pública que usa la propia página de la Superfinanciera) el enlace abre el DOCUMENTO del anuncio; sin ellas, o si el anuncio no
+    trae archivo, lleva a la portada general (antes todos llevaban ahí y no se encontraba el anuncio)."""
     filas = datos.get("content", []) if isinstance(datos, dict) else (datos or [])
     out = []
     for x in filas:
@@ -181,7 +187,8 @@ def items_de_sfc(datos: Any) -> list[Item]:
         if ts is None or not resumen:
             continue
         idarch = (x.get("archivoInfoRelevante") or {}).get("idArchivoInfoRelevante")
-        out.append(Item(ts, resumen[:400], "", "Superfinanciera", "https://www.superfinanciera.gov.co/SIMEV2/informacionrelevantegeneral", "sfc",
+        url = f"{base}/archivo-info-relevante/id-archivo/{idarch}?api-key={clave}" if (idarch and base and clave) else SFC_PORTADA
+        out.append(Item(ts, resumen[:400], "", "Superfinanciera", url, "sfc",
                         (ent.get("razonSocial") or "").split(" , pero ")[0], ((x.get("tipoTemaInfoRelevante") or {}).get("nombre") or "").strip()
                         + (f" #{idarch}" if idarch else "")))
     return out
@@ -352,7 +359,38 @@ class Lector:
         hoy = ahora.astimezone(C.bogota(self.cfg)).date()
         r = self._get(s["url"], {"page": 0, "size": s["size"], "fechaDesde": f"{hoy - dt.timedelta(days=1):%Y/%m/%d}", "fechaHasta": f"{hoy:%Y/%m/%d}"},
                       {"api-key": self.env.get("SFC_API_KEY") or s["api_key"], "Accept": "application/json"}, condicional=False)
-        return items_de_sfc(r.json())
+        clave = self.env.get("SFC_API_KEY") or s["api_key"]
+        return items_de_sfc(r.json(), s["url"].rsplit("/general/", 1)[0] if "/general/" in s["url"] else "", clave)
+
+    def enlace_real(self, url: str) -> str:
+        """La dirección de la NOTA cuando el enlace es de Google Noticias (que lleva a una página intermedia de Google). Se pregunta a Google a qué nota apunta
+        (dos consultas; se recuerda la respuesta). Si no se puede, se devuelve el mismo enlace: abre igual, pero pasando por Google."""
+        m = re.search(r"news\.google\.com/(?:rss/)?articles/([^?/]+)", url or "")
+        if not m:
+            return url
+        cache = self.__dict__.setdefault("_reales", {})
+        if url in cache:
+            return cache[url]
+        real = url
+        try:
+            aid = m.group(1)
+            h = {"User-Agent": self.n["agente"]}
+            r = self.http.get(f"https://news.google.com/rss/articles/{aid}", headers=h, timeout=self.n["timeout_s"])
+            sg, ts = re.search(r'data-n-a-sg="([^"]+)"', r.text), re.search(r'data-n-a-ts="([^"]+)"', r.text)
+            if sg and ts:
+                pedido = ["Fbv4je", json.dumps(["garturlreq", [["X", "X", ["X", "X"], None, None, 1, 1, "US:en", None, 1, None, None, None, None, None, 0, 1], "X", "X", 1, [1, 1, 1], 1, 1, None, 0, 0, None, 0],
+                                                 aid, int(ts.group(1)), sg.group(1)])]
+                p = self.http.post("https://news.google.com/_/DotsSplashUi/data/batchexecute", headers={**h, "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"},
+                                   data="f.req=" + quote(json.dumps([[pedido]])), timeout=self.n["timeout_s"])
+                cand = json.loads(json.loads(p.text.split("\n\n")[1])[0][2])[1]
+                if isinstance(cand, str) and cand.startswith("http") and "google.com" not in cand:
+                    real = cand
+        except Exception:                                                              # noqa: BLE001 — sin la dirección real se deja la de Google
+            real = url
+        if len(cache) > 400:
+            cache.clear()
+        cache[url] = real
+        return real
 
     def rss(self, fuente: dict[str, Any]) -> list[Item]:
         r = self._get(fuente["url"])
