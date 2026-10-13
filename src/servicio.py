@@ -1206,24 +1206,31 @@ BOTONES_RADAR = [[("🛒 Qué comprar", "c:comprar"), ("📊 Variaciones del dí
 
 
 def tick_radar_bvc(ctx: Contexto, mem: Any, titulares: list[Any] | None = None) -> list[str]:
-    """Radar de toda la Bolsa de Colombia (cada 2 minutos, sólo con la bolsa abierta): avisa cada movimiento fuerte del día de cualquier acción o fondo que se
-    negocie de verdad, esté o no en la lista del bot, con lo negociado, cuántas veces lo normal y la noticia que lo explica si el bot ya la leyó."""
+    """Radar de TODA la Bolsa de Colombia, solo (cada 2 minutos, de 4:00 a 20:00 de Nueva York): avisa cada movimiento fuerte del día de cualquier acción o fondo
+    de la BVC, local o global, esté o no en la lista del bot. Las locales con el libro de la BVC (con la bolsa abierta); las globales con su bolsa de origen,
+    también antes de abrir y después de cerrar las de EE. UU. Dice cuánto, dónde, cuánto se negocia en trii y la noticia que lo explica si el bot ya la leyó."""
     from . import liquidez as LQ
     from . import radar_bvc as RB
     r = ctx.cfg.get("radar_bvc") or {}
-    if not r.get("activo") or not LQ.en_sesion(ctx.ahora):
+    fase = RB.fase(ctx.ahora)
+    if not r.get("activo") or fase is None:
         return []
     tabla = ctx.f.libro_bvc() if hasattr(ctx.f, "libro_bvc") else None
     if not tabla:
         return []
+    origen = None
+    if r.get("globales", True) and hasattr(ctx.f, "origen_globales"):
+        origen = ctx.f.origen_globales([f.get("isin") for f in tabla.values() if f.get("global_")])
     lista = {(LQ.simbolo_trii(t, ctx.cfg) or t).replace(".CL", "") for t in universo_permitido(ctx.cfg)}
     lista |= {s[:-2] for s in lista if s.endswith("CO")}
-    movs = RB.movimientos(tabla, mem.d.setdefault("radar_bvc", {}), f"{ctx.ahora:%Y-%m-%d}", ctx.cfg, lista)
+    hoy = f"{ctx.ahora.astimezone(RB.NY):%Y-%m-%d}"
+    a_ny = ctx.ahora.astimezone(RB.NY)
+    movs = RB.movimientos(RB.candidatos(tabla, origen, fase, ctx.cfg, a_ny.hour * 60 + a_ny.minute), mem.d.setdefault("radar_bvc", {}), hoy, ctx.cfg, lista)
     if movs:
         mem.sucia = True
     ahora_utc = ctx.ahora.astimezone(dt.timezone.utc)
     mensajes = []
-    for x in movs[: int(r.get("max_por_ronda", 5))]:
+    for x in movs[: int(r.get("max_por_ronda", 8))]:
         m = F.msg_radar_bvc(x, RB.titulares_de(x["nombre"], titulares or [], ahora_utc), ctx.ahora)
         mensajes.append(m)
         enviar_o_encolar(ctx, m, BOTONES_RADAR)

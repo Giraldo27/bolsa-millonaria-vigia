@@ -507,13 +507,13 @@ liquidez:                                   # liquidez REAL en trii = lo que se 
     cache_min: 2
     concentrado_veces: 2.5                  # si las últimas 2 semanas negocian más de 2,5 veces lo de 3 meses, el volumen es de pocos días: no se aprueba
 
-radar_bvc:                                  # radar de TODA la bolsa: avisa cualquier movimiento fuerte del día, esté o no la acción en la lista (src/radar_bvc.py)
+radar_bvc:                                  # radar de TODA la bolsa, locales y globales: avisa solo cualquier movimiento fuerte del día (src/radar_bvc.py)
   activo: true
-  cada_s: 120
+  cada_s: 120                               # corre de 4:00 a 20:00 de Nueva York (antes de abrir, sesión y después del cierre)
   umbrales: [4, 7, 10, 15]                  # % del día: un aviso al cruzar cada escalón
-  min_prom_mm: 150                          # millones de pesos negociados al día en promedio (10 días): menos que eso, un precio puede ser de una sola operación
-  min_hoy_mm: 100                           # millones negociados HOY: que el movimiento venga de operaciones reales, no de un precio viejo
-  max_por_ronda: 5
+  min_hoy_mm: 5                             # locales: al menos $5 millones negociados HOY (que no sea una operación de unas pocas acciones)
+  globales: true                            # las 151 extranjeras de la BVC, con el precio de su bolsa de origen
+  max_por_ronda: 8
 
 modo:
   solo_bvc: true                            # el bot sólo RECOMIENDA acciones de la BVC (relevos, base, noticias, "qué comprar"). Lo que ya tengas de EE. UU. se sigue vigilando.

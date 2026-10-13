@@ -187,3 +187,9 @@
      bolsa abierta, cada 2 minutos revisa TODO el libro de la BVC (221 símbolos) y avisa cuando algo que se negocia de verdad (promedio ≥ $150 millones al día y
      ≥ $100 millones hoy) cruza 4/7/10/15 % en el día, una vez por escalón, con lo negociado frente a lo normal y el titular que probablemente lo explica. No
      recomienda comprar (un salto puede seguir o devolverse); el filtro de liquidez sigue igual: hoy PFDAVVNDA sale MALA ($196 millones en un día normal).
+138. **El radar cubre TODA la BVC, locales y globales, y avisa solo (13-oct-2026).** Pedido del usuario: "todas las acciones de la bvc en el radar, incluidas
+     las globales; las notificaciones deben ser automáticas". Las 221 de la BVC: las locales (ISIN colombiano, o extranjero que sólo se negocia aquí, como
+     Davivienda Group o BHI) con el libro de la BVC durante la sesión, con un piso de $5 millones negociados hoy (para no avisar una operación de unas pocas
+     acciones); las 148 globales que tienen bolsa de origen, con el cambio de allá (buscadas por ISIN en el tablero público global; en trii su precio sigue al
+     de allá y casi no se negocian en la BVC). Las de EE. UU. también antes de abrir (4:00–9:30 de Nueva York) y después del cierre (16:00–20:00). Lima cuenta
+     desde que abre (10:00 de Nueva York). Antes de abrir y la sesión son el mismo movimiento (no se repite); después del cierre cuenta aparte.

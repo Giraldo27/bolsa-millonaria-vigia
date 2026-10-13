@@ -1135,25 +1135,37 @@ No importa si pones el precio en pesos o en dólares, o el total en vez del prec
 
 
 def msg_radar_bvc(x: dict[str, Any], titulares: list[Any], ahora: dt.datetime) -> str:
-    """Aviso del radar de la Bolsa de Colombia: una acción se mueve fuerte hoy. Dice cuánto, cuánta plata se negoció frente a lo normal, si el bot la vigilaba
-    y la noticia que probablemente lo explica (o que no la encontró). No recomienda comprar: un salto puede seguir o devolverse."""
+    """Aviso del radar de la Bolsa de Colombia: una acción (local o global) se mueve fuerte. Dice cuánto y dónde, cuánto se negocia en trii frente a lo normal,
+    si el bot la vigilaba y la noticia que probablemente lo explica (o que no la encontró). No recomienda comprar: un salto puede seguir o devolverse."""
     sube = x["cambio"] > 0
     grande = abs(x["cambio"]) >= 0.07
-    cab = (f"🚨🚨 {b('MOVIMIENTO MUY FUERTE EN LA BOLSA DE COLOMBIA')} 🚨🚨" if grande else f"🚨 {b('MOVIMIENTO FUERTE EN LA BOLSA DE COLOMBIA')}")
+    cab = (f"🚨🚨 {b('MOVIMIENTO MUY FUERTE')} 🚨🚨" if grande else f"🚨 {b('MOVIMIENTO FUERTE')}") + " · " + b("acción de la Bolsa de Colombia")
+    cuando = {"pre": "antes de abrir", "post": "después del cierre", "sesion": "hoy"}[x.get("momento", "sesion")]
+    donde = "" if x.get("donde", "bvc") == "bvc" else f" en {x['bolsa']}" + (f" ({esc(x['simbolo_origen'])})" if x.get("simbolo_origen") and x["simbolo_origen"] != x["simbolo"] else "")
     L = [f"{cab}  {it(f'{fecha(ahora)} · {ahora:%H:%M}')}", "",
-         f"{'🟢' if sube else '🔴'} {b(esc(x['simbolo']))} ({esc(x['nombre'][:60])}) {b(('sube ' if sube else 'baja ') + pct(abs(x['cambio']), 1))} hoy"
-         + (f" — ya te había avisado y sigue {'subiendo' if sube else 'bajando'}" if x.get("repetido") else ""),
-         f"💰 Negociado hoy: {cop(x['hoy_mm'] * 1e6)}" + (f" · {str(round(x['veces'], 1)).replace('.', ',')} veces lo de un día normal" if x.get("veces") else "")
-         + (" — volumen fuera de lo normal: hay alguien comprando o vendiendo en serio." if (x.get("veces") or 0) >= 1.5 else "."),
-         ("📌 Está en mi lista: la vigilo con noticias y liquidez." if x.get("en_lista") else
-          "📌 No está en mi lista de acciones vigiladas: te aviso porque se mueve fuerte y se negocia de verdad.")]
+         f"{'🟢' if sube else '🔴'} {b(esc(x['simbolo']))} ({esc(x['nombre'][:60])}) {b(('sube ' if sube else 'baja ') + pct(abs(x['cambio']), 1))} {cuando}{donde}"
+         + (f" — ya te había avisado y sigue {'subiendo' if sube else 'bajando'}" if x.get("repetido") else "")]
+    if x.get("global_"):
+        L.append("🌎 Es una acción extranjera: en trii su precio en pesos sigue al de su bolsa de origen (y al dólar)"
+                 + (", así que este movimiento llega a trii cuando abra la bolsa de Colombia." if x.get("momento") == "pre" else
+                    ", así que este movimiento llega a trii en la próxima sesión." if x.get("momento") == "post" else "."))
+        if x["hoy_mm"] >= 1 or x["prom_mm"] >= 1:
+            L.append(f"💰 En trii hoy se han negociado {cop(x['hoy_mm'] * 1e6)}; en un día normal, {cop(x['prom_mm'] * 1e6)}."
+                     + (" Se negocia poco: entrar es fácil, salir no." if x["prom_mm"] < 300 else ""))
+        else:
+            L.append("💰 En trii casi no se negocia: entrar es fácil, salir no.")
+    else:
+        L.append(f"💰 Negociado hoy: {cop(x['hoy_mm'] * 1e6)}" + (f" · {str(round(x['veces'], 1)).replace('.', ',')} veces lo de un día normal" if x.get("veces") else "")
+                 + (" — volumen fuera de lo normal: hay alguien comprando o vendiendo en serio." if (x.get("veces") or 0) >= 1.5 else
+                    " — se negoció muy poco: puede ser de pocas operaciones." if x["hoy_mm"] < 50 else "."))
+    L.append("📌 Está en mi lista: la vigilo con noticias y liquidez." if x.get("en_lista") else
+             "📌 No está en mi lista de acciones vigiladas: te aviso porque el radar revisa toda la bolsa.")
     if titulares:
         L += ["", f"📰 {b('Lo que probablemente lo explica')}:"]
         for t in titulares:
             L.append(f"• {esc(t.titulo[:200])} — {it(esc(t.fuente))}" + (f" · {enlace(t.url)}" if getattr(t, "url", "") else ""))
     else:
-        L += ["", "📰 Todavía no encontré una noticia que lo explique: puede ser un anuncio que aún no sale en los medios. Mira los anuncios de la empresa en la "
-                  "Superfinanciera o pregúntame por ella en unos minutos."]
+        L += ["", "📰 Todavía no encontré una noticia que lo explique: puede ser un anuncio que aún no sale en los medios. Pregúntame por ella en unos minutos."]
     L += ["", it("Un salto así a veces sigue y a veces se devuelve: en promedio, comprar después del salto no ha pagado el costo de entrar y salir (1,3%). "
-                 "Antes de comprarla, pregúntame por ella. Datos de la bolsa con 15 minutos de retraso.")]
+                 "Antes de comprarla, pregúntame por ella. Datos de las bolsas con hasta 15 minutos de retraso.")]
     return "\n".join(L)
