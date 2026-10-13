@@ -88,6 +88,15 @@ class Vigia:
             log.info("mercado: %d aviso(s) enviados", len(msgs))
             self.guardar(True)
 
+    def radar_bvc(self) -> None:
+        """Radar de toda la Bolsa de Colombia: movimientos fuertes del día de cualquier acción que se negocie, esté o no en la lista."""
+        ctx = S.crear_contexto()
+        with self._candado_mem:
+            msgs = S.tick_radar_bvc(ctx, self.mem, list(getattr(self.lector, "ultimos", []) or []) + list(getattr(self.lector_m, "ultimos", []) or []))
+        if msgs:
+            log.info("radar de la bolsa: %d aviso(s) enviados", len(msgs))
+            self.guardar(True)
+
     def latido(self) -> None:
         """Si la bolsa está abierta y llevan mucho rato sin salir avisos, una línea para que el silencio no parezca una falla."""
         m = S.latido(S.crear_contexto(), self.mem, float(self.v.get("latido_min") or 0))
@@ -243,6 +252,8 @@ class Vigia:
                 tareas.append(asyncio.create_task(self.bucle("mercado", self.cfg["noticias_mercado"]["cada_s"], self.mercado, 25)))
             if n["activo"]:
                 tareas.append(asyncio.create_task(self.bucle("noticias", n["cada_s"], self.noticias, 5)))
+            if (self.cfg.get("radar_bvc") or {}).get("activo"):
+                tareas.append(asyncio.create_task(self.bucle("radar de la bolsa", self.cfg["radar_bvc"]["cada_s"], self.radar_bvc, 35)))
             if self.cfg["macro_vivo"].get("activo"):
                 tareas.append(asyncio.create_task(self.bucle("macro", self.cfg["macro_vivo"]["cada_s"], self.macro, 40)))
                 tareas.append(asyncio.create_task(self.bucle("resumen de la mañana", 60, self.manana, 150)))

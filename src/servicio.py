@@ -1202,6 +1202,34 @@ def analisis_breve(ctx: Contexto, a: dict[str, Any], est: Estado, factor: dict[s
     return out
 
 
+BOTONES_RADAR = [[("🛒 Qué comprar", "c:comprar"), ("📊 Variaciones del día", "c:variaciones")], [("💼 Mi cartera", "c:cartera")]]
+
+
+def tick_radar_bvc(ctx: Contexto, mem: Any, titulares: list[Any] | None = None) -> list[str]:
+    """Radar de toda la Bolsa de Colombia (cada 2 minutos, sólo con la bolsa abierta): avisa cada movimiento fuerte del día de cualquier acción o fondo que se
+    negocie de verdad, esté o no en la lista del bot, con lo negociado, cuántas veces lo normal y la noticia que lo explica si el bot ya la leyó."""
+    from . import liquidez as LQ
+    from . import radar_bvc as RB
+    r = ctx.cfg.get("radar_bvc") or {}
+    if not r.get("activo") or not LQ.en_sesion(ctx.ahora):
+        return []
+    tabla = ctx.f.libro_bvc() if hasattr(ctx.f, "libro_bvc") else None
+    if not tabla:
+        return []
+    lista = {(LQ.simbolo_trii(t, ctx.cfg) or t).replace(".CL", "") for t in universo_permitido(ctx.cfg)}
+    lista |= {s[:-2] for s in lista if s.endswith("CO")}
+    movs = RB.movimientos(tabla, mem.d.setdefault("radar_bvc", {}), f"{ctx.ahora:%Y-%m-%d}", ctx.cfg, lista)
+    if movs:
+        mem.sucia = True
+    ahora_utc = ctx.ahora.astimezone(dt.timezone.utc)
+    mensajes = []
+    for x in movs[: int(r.get("max_por_ronda", 5))]:
+        m = F.msg_radar_bvc(x, RB.titulares_de(x["nombre"], titulares or [], ahora_utc), ctx.ahora)
+        mensajes.append(m)
+        enviar_o_encolar(ctx, m, BOTONES_RADAR)
+    return mensajes
+
+
 def tick_mercado(ctx: Contexto, lector: Any, mem: Any, extra: list[Any] | None = None) -> list[str]:
     """Una ronda del vigía de mercado (cada minuto): lee las fuentes y avisa cada noticia nueva de mercado con titular, enlace, resumen, acciones beneficiadas
     y afectadas, sectores con su porqué y el movimiento esperado a una semana."""

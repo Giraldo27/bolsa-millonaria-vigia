@@ -180,3 +180,10 @@
      tregua), no de "drop"/"rise" que se refieren a otra cosa. Se reconocen más verbos de "oil". (4) `mercado.es_opinion`: columnas, previas de resultados,
      análisis técnico, "¿deberías comprar…?", ventas mínimas de directivos, premios y videos no se avisan. Las preguntas cuentan como opinión sólo en inglés: en español
      los medios titulan noticias reales con preguntas. Sobre los 311 avisos del fin de semana, el filtro deja 224; no se pierde ningún hecho que mueva una acción.
+137. **Radar de toda la BVC y Davivienda en la lista (13-oct-2026).** El usuario iba +3,2 % con los primeros cerca de +10 %. Medido desde la apertura del 5-oct
+     (sin el salto de NU antes de abrir), la única acción con más de 10 % fue la preferencial de Davivienda (PFDAVVNDA, +14,4 %; +9,1 % el 5-oct con seis
+     veces su volumen, tras la autorización de la Superfinanciera del 2-oct para integrar a DAVIbank). El bot no la vigilaba. Se agregan PFDAVVNDA, PFDAVIGRP,
+     ICOLCAP e IBIT (se negocian ≥ $300 millones al día y faltaban), Davivienda como emisor (noticias y anuncios de la Superfinanciera) y `radar_bvc`: con la
+     bolsa abierta, cada 2 minutos revisa TODO el libro de la BVC (221 símbolos) y avisa cuando algo que se negocia de verdad (promedio ≥ $150 millones al día y
+     ≥ $100 millones hoy) cruza 4/7/10/15 % en el día, una vez por escalón, con lo negociado frente a lo normal y el titular que probablemente lo explica. No
+     recomienda comprar (un salto puede seguir o devolverse); el filtro de liquidez sigue igual: hoy PFDAVVNDA sale MALA ($196 millones en un día normal).
