@@ -112,9 +112,69 @@ TEMAS: list[dict[str, Any]] = [
       efectos=[(-1, "autos y fabricantes", ["F", "TSLA", "GE"], "arman con piezas importadas: el arancel les sube el costo"),
                (-1, "tecnológicas con fábricas en Asia", ["AAPL", "NVDA"], "producen afuera y venden en EE. UU."),
                (-1, "consumo", ["WMT", "AMZN"], "venden mercancía importada: o suben precios o pierden margen")]),
-    T(clave="energia_colombia", nombre="Energía eléctrica en Colombia", factor="colombia", que="las reglas o el clima para la energía en Colombia",
-      patrones=[r"\bcreg\b", r"tarifas? de energia", r"embalses", r"fenomeno del? nino", r"racionamiento", r"precio de bolsa de energia", r"cargo por confiabilidad", r"generacion (hidraulica|termica|electrica)"],
-      efectos=[(0, "energía eléctrica", ["CELSIA", "GEB", "ISA", "PROMIGAS"], "son las que generan, transportan y venden la energía: cualquier cambio de reglas o de lluvias les mueve el ingreso")]),
+    T(clave="energia_colombia", nombre="Energía en Colombia (riesgo de apagón)", factor="colombia", que="el riesgo de apagón o de racionamiento", peso_abajo=2,
+      patrones=[r"\bapagon(es)?\b", r"racionamiento", r"crisis energetica", r"(riesgo\w*|seguridad|emergencia|deficit|escasez) (energetic\w+|de energia|electric\w+)", r"sistema electrico", r"sector electrico",
+                r"\bcreg\b", r"tarifas? de (la )?energia", r"embalses", r"fenomeno del? nino", r"precio de bolsa de energia", r"cargo por confiabilidad", r"opcion tarifaria",
+                r"generacion (hidraulica|termica|electrica|de energia)", r"(termicas|hidroelectricas|generadoras|comercializadoras) (de energia)?", r"energia electrica", r"servicio de energia",
+                r"\bel nino\b.*\b(energ\w+|embalse\w*|apagon\w*|racionamiento|sequia|medidas|plan|crisis|riesgo\w*|gobierno|presidente|estrategia)\b",
+                r"\b(energ\w+|apagon\w*|racionamiento|sequia|medidas|plan|crisis|riesgo\w*|gobierno|presidente|estrategia)\b.*\bel nino\b"],
+      arriba=r"(apagon\w*|racionamiento|crisis|alerta\w*|riesgo\w*|deficit|escasez|advierte|advirtio|se quedaria sin|emergencia|sequia|nos puede apagar|sin energia)",
+      abajo=r"(plan|medidas|evitar|evita|garantiz\w+|solucion\w*|arregl\w+|destrab\w+|inversion\w*|invertir\w*|traslado|proteger|protege|promet\w+|enfrentar|afrontar|contingencia|fecha limite|"
+            r"estaran en marcha|optimizar|aprob\w+|refuerz\w+|nueva capacidad|entran? en operacion)",
+      efectos=[(0, "energía eléctrica: redes y generación", ["ISA", "CELSIA", "GEB"],
+                "ISA lleva la energía por las líneas de transmisión, y Celsia y GEB la generan y la venden. Cuando el gobierno pone un plan con plata y con fecha, se destraban líneas "
+                "y plantas que estaban frenadas y baja el riesgo que más castiga a estas acciones: que les intervengan los precios o que haya racionamiento. Si en cambio sólo crece "
+                "la alarma, el efecto es mixto: la energía escasa se vende más cara, pero una hidroeléctrica sin agua genera menos y aumenta la presión para controlar tarifas", +1),
+               (+1, "gas para las plantas térmicas", ["PROMIGAS", "CNEC", "ECOPETROL"],
+                "cuando falta agua en los embalses, las plantas térmicas se prenden más y queman más gas: sube la demanda para quien lo produce y lo transporta", 0),
+               (-1, "industria que gasta mucha energía", ["CEMARGOS", "PFCEMARGOS", "ENKA", "NUTRESA"],
+                "el cemento, los textiles y los alimentos gastan mucha energía: si escasea, la pagan más cara o tienen que parar hornos y líneas de producción"),
+               (-1, "comercio y consumo", ["EXITO"], "los cortes de luz y las tarifas altas le quitan ventas a las tiendas y plata al bolsillo de los hogares")]),
+    T(clave="hidrocarburos_colombia", nombre="Petróleo y gas en Colombia (reglas del sector)", factor="petroleo", que="el apoyo del gobierno a producir petróleo y gas",
+      patrones=[r"\bfracking\b", r"exploracion (de |y produccion de )?(hidrocarburos|petroleo|gas)", r"contratos (petroleros|de exploracion)", r"\banh\b", r"hectareas para exploracion", r"regasificadora",
+                r"importacion(es)? de gas", r"(deficit|escasez|reservas) de gas", r"gas natural (en|de) colombia", r"precio de la gasolina", r"precio del acpm", r"\bfepc\b", r"regalias (petroleras|de hidrocarburos)",
+                r"(hidrocarburos|petroleo|gas).*\b(gobierno|presidente|minenergia|ministerio de minas|decreto)\b.*colombia", r"\b(minenergia|ministerio de minas)\b"],
+      arriba=r"(reserva\w*|habilit\w+|aprob\w+|autoriz\w+|reactiv\w+|impuls\w+|destrab\w+|adjudic\w+|firma\w*|nuevos contratos|invert\w+|inversion\w*|hallazgo|descubr\w+|levanta\w* (la )?prohib\w+|permit\w+)",
+      abajo=r"(prohib\w+|suspend\w+|fren\w+|cancel\w+|no firmara|moratoria|deficit|escasez|sancion\w*|congel\w+|sube el precio|alza)",
+      efectos=[(+1, "petróleo y gas", ["ECOPETROL", "CNEC"],
+                "son las que buscan y sacan petróleo y gas en Colombia: más áreas para explorar y reglas que lo permitan significan más reservas y más producción en los próximos años; "
+                "una prohibición o un freno hace lo contrario"),
+               (+1, "transporte y distribución de gas", ["PROMIGAS", "TERPEL"],
+                "Promigas mueve el gas por sus tubos y Terpel vende los combustibles: viven del volumen que pasa por su red, así que más producción y más oferta les conviene"),
+               (+1, "empresas con dueño estatal", ["ISA", "GEB"], "lo que el gobierno decide con Ecopetrol, que es dueña de la mayoría de ISA, termina reflejándose en el grupo")]),
+    T(clave="infraestructura_colombia", nombre="Obras, vivienda e infraestructura en Colombia", factor="colombia", que="el impulso a las obras y la vivienda",
+      patrones=[r"megaproyecto\w*", r"megaobra\w*", r"licencia\w* ambiental\w*", r"concesion(es)? (vial\w*|aeroportuari\w+|de vias)", r"\b(4g|5g) vial\w*", r"vias (4g|5g)", r"(tarifas?|alza|aumento|cobro) de(l| los)? peajes?", r"obras? (publicas?|de infraestructura|civiles)",
+                r"infraestructura (vial|de transporte)", r"subsidios? de vivienda", r"mi casa ya", r"vivienda (de interes social|nueva|vis)", r"desarrollo urbano", r"obras del metro", r"\bani\b", r"\binvias\b",
+                r"aeropuerto el dorado", r"conexion vial", r"sector (de la )?construccion", r"ventas de vivienda", r"licencias de construccion"],
+      arriba=r"(aprob\w+|aprueb\w+|destrab\w+|aceler\w+|impuls\w+|invert\w+|inversion\w*|adjudic\w+|reactiv\w+|elimin\w+ (la )?(medida|norma|restriccion)|quit\w+ demoras|avanza\w*|inici\w+|financia\w*|subsidi\w+|crec\w+|repunt\w+)",
+      abajo=r"(fren\w+|suspend\w+|cancel\w+|retras\w+|demor\w+|paraliz\w+|problemas|cae\w*|caida|desplom\w+|sin recursos|desfinanci\w+|bloque\w+|recort\w+)",
+      efectos=[(+1, "cemento y construcción", ["CEMARGOS", "PFCEMARGOS"],
+                "cada obra y cada casa nueva es cemento y concreto vendido: cuando el gobierno destraba licencias o pone subsidios de vivienda, sube el volumen que despachan; si las obras se frenan, baja"),
+               (+1, "concesiones y obras", ["GRUPOARGOS", "PFGRUPOARG", "CORFICOLCF", "PFCORFICOL"],
+                "Grupo Argos (con Odinsa) y Corficolombiana son dueños de vías y aeropuertos en concesión: ganan cuando los proyectos avanzan y se aprueban, y pierden con retrasos, bloqueos o cambios en los peajes"),
+               (+1, "bancos que financian las obras", ["PFBCOLOM", "BCOLOMBIA", "BOGOTA", "PFAVAL"], "prestan la plata para construir y para comprar vivienda: más obras son más crédito")]),
+    T(clave="consumo_colombia", nombre="Bolsillo de los hogares en Colombia", factor="colombia", que="la plata que tienen los hogares para gastar",
+      patrones=[r"salario minimo", r"\biva\b", r"dia sin iva", r"ventas (del comercio|minoristas|de las tiendas)", r"confianza del consumidor", r"\bremesas\b", r"\bdesempleo\b", r"canasta familiar", r"costo de vi(da|vir)",
+                r"gasto de los hogares", r"impuesto\w* (saludable\w*|a (las )?bebidas|a (los )?alimentos)"],
+      arriba=r"(sube el salario|aumento del salario|alza del salario|crec\w+|repunt\w+|mejor\w+|baja (el )?(iva|desempleo)|reduc\w+ (el )?(iva|desempleo)|dia sin iva|record|aument\w+ (las )?(ventas|remesas))",
+      abajo=r"(cae\w*|caida|baj\w+ (las )?ventas|sube (el )?(iva|desempleo)|nuevo impuesto|mas impuestos|encarec\w+|golpea\w*|apriet\w+|se desploma|pierde poder)",
+      efectos=[(+1, "comercio y alimentos", ["EXITO", "NUTRESA"],
+                "venden lo que los hogares compran todos los días: con más ingreso o menos impuestos la gente gasta más en sus tiendas y productos; con impuestos nuevos o desempleo, gasta menos"),
+               (+1, "bancos (crédito de consumo)", ["PFBCOLOM", "BCOLOMBIA", "BOGOTA", "PFAVAL", "BHI"], "un hogar con más ingreso pide más crédito y lo paga a tiempo; uno apretado se atrasa en las cuotas")]),
+    T(clave="banca_colombia", nombre="Bancos y crédito en Colombia", factor="colombia", que="las condiciones para los bancos",
+      patrones=[r"tasa de usura", r"4x1000", r"cuatro por mil", r"cartera (vencida|en mora|de credito)", r"utilidades de (los )?bancos", r"sistema financiero", r"inversiones forzosas", r"sector bancario",
+                r"credito (de consumo|hipotecario|de vivienda)", r"desembolsos", r"superfinanciera.*\b(bancos|entidades financieras|cartera)\b"],
+      arriba=r"(crec\w+|repunt\w+|mejor\w+|sube la tasa de usura|aument\w+ (las )?utilidades|baja la mora|elimin\w+ (el )?4x1000|recuper\w+)",
+      abajo=r"(cae\w*|caida|deterior\w+|sube la mora|aument\w+ (la )?(mora|cartera vencida)|baja la tasa de usura|inversiones forzosas|nuevo impuesto|sobretasa|perdidas)",
+      efectos=[(+1, "bancos y grupos financieros", ["PFBCOLOM", "BCOLOMBIA", "BOGOTA", "AVAL", "PFAVAL", "BHI", "CORFICOLCF", "GRUPOSURA", "PFSURA"],
+                "su negocio es prestar y cobrar: ganan cuando el crédito crece y la gente paga, y pierden cuando sube la mora o cuando el gobierno les pone topes, impuestos o inversiones obligatorias")]),
+    T(clave="mineria_colombia", nombre="Minería en Colombia", factor="oro", que="las condiciones para la minería legal",
+      patrones=[r"\bmineria\b", r"titulos? minero\w*", r"codigo de minas", r"regalias mineras", r"oro (ilegal|de aluvion)", r"contrabando de oro", r"explotacion ilegal de oro", r"sector minero"],
+      arriba=r"(formaliz\w+|aprob\w+|impuls\w+|combat\w+|intervino|intervien\w+|golpe\w* a|decomis\w+|aument\w+ (la )?produccion|nuevos titulos)",
+      abajo=r"(prohib\w+|suspend\w+|fren\w+|nuevo impuesto|mas regalias|sube\w* (las )?regalias|bloque\w+|ataque\w*|aument\w+ (de )?(la )?(explotacion|mineria) ilegal)",
+      efectos=[(+1, "minería de oro", ["MINEROS"],
+                "Mineros saca oro en Antioquia y en Nicaragua: le ayuda que se combata la minería ilegal, que compite con ella y le crea problemas de seguridad, y le pesa cualquier impuesto, "
+                "regalía o freno nuevo a los títulos mineros")]),
     T(clave="china", nombre="China", factor="petroleo", que="la economía de China",
       patrones=[r"\byuan\b", r"(china|chino|china's|pekin|beijing).*(economia|economy|estimulo|stimulus|pib|gdp|crecimiento|growth|exportaciones|exports|deflac\w+|deflation|demanda|demand|inmobiliari\w+|property)",
                 r"(economia|estimulo|pib|crecimiento|exportaciones|stimulus|economy) (de |from |in )?(china|chino)"],
@@ -122,6 +182,57 @@ TEMAS: list[dict[str, Any]] = [
                (+1, "tecnológicas que venden allá", ["AAPL", "TSLA", "NVDA"], "una parte grande de sus ventas viene de China")]),
 ]
 POR_CLAVE = {t["clave"]: t for t in TEMAS}
+
+# Por qué importa cada tema y qué mirar en la semana: va en el aviso, debajo de "Cómo va el mercado". Explica el mecanismo; no promete un resultado.
+EXPLICA = {
+    "petroleo": "El precio del petróleo es el ingreso de las petroleras y, a la vez, un costo para casi todo lo demás. Para Colombia pesa doble: Ecopetrol es la acción más negociada "
+                "y el petróleo es el principal producto de exportación, así que también mueve el dólar. Esta semana conviene mirar si el movimiento se sostiene más de un día: los saltos "
+                "por un susto suelen devolverse cuando el susto pasa.",
+    "tasas_eeuu": "Las tasas de interés de Estados Unidos son el precio del dinero en el mundo. Cuando suben, la plata sale de las acciones más riesgosas y de los países emergentes hacia "
+                  "los bonos, y eso pega primero en las tecnológicas, en Nubank y en la bolsa colombiana; cuando bajan, pasa lo contrario. Lo que hay que mirar en la semana son los datos "
+                  "de inflación y empleo de Estados Unidos, que son los que mueven esas tasas.",
+    "inflacion_eeuu": "La inflación y el empleo de Estados Unidos deciden qué hace la Reserva Federal con las tasas. Un dato más alto de lo esperado hace pensar en tasas altas por más "
+                      "tiempo, y eso baja las acciones de crecimiento y fortalece el dólar; un dato bajo hace lo contrario. El efecto se ve el mismo día del dato y a veces se corrige al siguiente.",
+    "tasas_colombia": "Las tasas del Banco de la República y la inflación definen cuánto cuesta el crédito en Colombia. Con tasas altas pagan más las empresas con mucha deuda (energía, "
+                      "construcción) y los hogares compran menos; los bancos ganan margen pero prestan menos. En la semana importa si el dato sale por encima o por debajo de lo que el mercado esperaba.",
+    "dolar": "El dólar cambia el valor en pesos de todo lo que viene de afuera. Las acciones globales que compras en trii se negocian en pesos: si el dólar sube, suben en pesos aunque en "
+             "Nueva York no se muevan, y si baja, pierden. A las empresas colombianas que exportan les ayuda un dólar alto; a las que importan, uno bajo.",
+    "oro": "El oro sube cuando hay miedo o cuando bajan las tasas, y baja cuando los bonos rinden más. Mineros vende oro, así que su ingreso se mueve casi a la par del precio. "
+           "Un solo día de alza no hace tendencia: mira si el oro sostiene el movimiento varios días.",
+    "brasil": "Nubank y Petrobras son empresas brasileñas: su precio depende del ánimo del mercado de Brasil y de su moneda, el real, más que de lo que pase en Colombia. En época de "
+              "elecciones se mueven con cada encuesta y cada resultado, para arriba y para abajo, y esos movimientos pueden ser de varios puntos en un día.",
+    "geopolitica": "Un conflicto sube el petróleo y el oro, porque se teme que falte crudo y la plata busca refugio, y baja las acciones más movidas, que son las primeras que se venden "
+                   "en un susto. Una tregua hace lo contrario. Son movimientos rápidos y con frecuencia se devuelven en pocos días si la noticia no escala.",
+    "riesgo_colombia": "La confianza en las cuentas del gobierno colombiano mueve a todo el mercado local a la vez: al dólar, a los bonos y a las acciones, sobre todo a los bancos (que tienen "
+                       "muchos bonos del gobierno) y a las empresas con dueño estatal. Lo que da tranquilidad sube el mercado; lo que hace dudar de que el gobierno cumpla, lo baja.",
+    "ia_chips": "La inteligencia artificial es lo que más ha movido a las bolsas de Estados Unidos. Las empresas que fabrican los chips y las que construyen los centros de datos pesan "
+                "tanto en los índices que arrastran al resto. Las noticias sobre gasto, demanda o dudas de una burbuja mueven a todo el grupo al tiempo.",
+    "bancos_eeuu": "Los grandes bancos de Estados Unidos reportan sus resultados casi el mismo día, y lo que dice uno se toma como señal para los demás y para la economía: si la gente "
+                   "paga sus créditos y gasta con tarjeta, ganan también las redes de pago.",
+    "consumo_eeuu": "El gasto de los hogares es dos tercios de la economía de Estados Unidos. Los datos de ventas y de confianza anticipan cómo les irá a las empresas de consumo, "
+                    "a las de pagos con tarjeta y a los fabricantes de carros, que es lo primero que se aplaza cuando el consumidor se asusta.",
+    "aranceles": "Un arancel es un impuesto a lo que entra de afuera: le sube el costo a quien fabrica con piezas importadas o vende mercancía traída de otros países. Un acuerdo que "
+                 "los baja o los suspende hace lo contrario. El efecto depende de qué tan en serio se tome el anuncio: muchos se negocian o se aplazan.",
+    "energia_colombia": "La energía de Colombia depende de las lluvias: cuando los embalses bajan, hay que prender plantas térmicas más caras y crece el riesgo de racionamiento. Para ISA, "
+                        "Celsia y GEB lo que más pesa no es el clima sino lo que haga el gobierno: un plan con plata y con fecha destraba proyectos y les da reglas claras; una intervención "
+                        "de precios o de tarifas les quita ingreso. En la semana hay que mirar si el anuncio trae decretos y recursos concretos o se queda en promesa.",
+    "hidrocarburos_colombia": "Colombia vive del petróleo y se está quedando corta de gas. Cada decisión del gobierno sobre exploración, fracking o importación de gas cambia cuánto pueden "
+                              "producir Ecopetrol y Canacol en los próximos años y cuánto gas pasa por la red de Promigas. Lo que hay que mirar es si el anuncio viene con contratos y áreas "
+                              "concretas o es sólo una intención.",
+    "infraestructura_colombia": "Las obras y la vivienda mueven a toda una cadena: el cemento, los dueños de las concesiones de vías y aeropuertos y los bancos que las financian. "
+                                "Cuando el gobierno destraba licencias, pone subsidios o adjudica proyectos, esa cadena vende más; cuando una obra se frena o se queda sin plata, pasa lo contrario. "
+                                "Entre el anuncio y la obra pasan meses: el mercado reacciona a la señal.",
+    "consumo_colombia": "Lo que los hogares tienen para gastar define las ventas de las tiendas y de las empresas de alimentos, y también si la gente paga sus créditos. El salario mínimo, "
+                        "el IVA, el desempleo y las remesas son los datos que más lo mueven.",
+    "banca_colombia": "Los bancos son la mayor parte de la bolsa colombiana. Ganan cuando el crédito crece y la gente paga, y pierden cuando sube la mora o cuando el gobierno les pone "
+                      "topes a las tasas, impuestos o inversiones obligatorias. Una noticia que cambie esas reglas mueve a todo el sector al tiempo.",
+    "mineria_colombia": "La minería legal de oro compite con la ilegal y depende de las reglas del gobierno sobre títulos y regalías. A Mineros le ayuda que se controle la minería ilegal "
+                        "y que haya reglas estables; le pesa cualquier impuesto nuevo o bloqueo en sus zonas.",
+    "china": "China es el mayor comprador de materias primas del mundo. Si su economía crece o recibe estímulos, sube la demanda de petróleo y metales; si se frena, baja. "
+             "También es un mercado grande para Apple, Tesla y Nvidia.",
+}
+EXPLICA_EMPRESA = ("Es una noticia propia de la empresa. Su efecto llega primero a su acción y, más débil, a las de su mismo sector, porque el mercado la lee como una señal de cómo "
+                   "va el negocio de todas. En trii estas acciones se negocian en pesos, así que el dólar también les suma o les resta.")
 
 # ------------------------------------------------------------------ empresas globales que se negocian en la Bolsa de Colombia
 # (acción, cómo la nombran los titulares, sector). Los bancos y casas de bolsa aparecen a diario OPINANDO de otras empresas ("JPMorgan sube el objetivo de…"):
@@ -176,10 +287,15 @@ def direccion(titulo_norm: str, tema: dict[str, Any]) -> int:
     return (a > b) - (b > a)
 
 
+OTRO_PAIS = (r"\b(cuba|venezuela|mexic\w+|argentin\w+|peru|chile|ecuador|bolivia|panama|espana|canada|uruguay|paraguay|brasil|brazil|india|china|rusia|ucrania|alemania|francia|"
+             r"reino unido|japon|estados unidos|ee\.? ?uu\.?|milei|sheinbaum|fujimori|maduro)\b")
+
+
 def temas_de(titulo: str) -> list[tuple[dict[str, Any], int]]:
     """Temas de mercado que toca el titular, cada uno con su dirección. Máximo dos (el titular más cargado no debe volverse una lista de todo)."""
     t = N.norm(titulo)
-    hallados = [(tema, sum(1 for p in tema["patrones"] if re.search(p, t))) for tema in TEMAS]
+    ajeno = bool(re.search(OTRO_PAIS, t)) and not re.search(r"\bcolombia\w*\b", t)      # "Cuba enfrenta su crisis energética" no es un tema de Colombia
+    hallados = [(tema, sum(1 for p in tema["patrones"] if re.search(p, t))) for tema in TEMAS if not (ajeno and tema["clave"].endswith("_colombia"))]
     hallados = sorted([h for h in hallados if h[1]], key=lambda h: -h[1])[:2]
     return [(tema, direccion(t, tema)) for tema, _ in hallados]
 
@@ -220,10 +336,14 @@ def analizar(item: N.Item, permitidas: set[str] | None = None) -> dict[str, Any]
             sectores.append(dict(nombre=f"otras de {SECTOR_GLOBAL[empresas[0]]}", signo=s, tickers=pares, directa=False,
                                  porque="lo que le pasa a una se lee como señal para sus pares (efecto más débil)"))
     for tema, d in temas:
-        for signo, nombre, tickers, porque in tema["efectos"]:
+        for ef in tema["efectos"]:
+            signo, nombre, tickers, porque = ef[:4]
+            al_bajar = ef[4] if len(ef) > 4 else -signo                                # casi siempre es lo contrario; algunos sectores ganan sólo en un sentido
             tk = ok([t for t in tickers if t not in empresas])
             if tk:
-                sectores.append(dict(nombre=nombre, signo=(signo * d) if signo else 0, base=signo, mixto=signo == 0, tickers=tk, porque=porque, directa=False,
+                efecto = signo if d > 0 else (al_bajar if d < 0 else 0)
+                base = signo if signo else (-1 if al_bajar > 0 else (1 if al_bajar < 0 else 0))      # para decir "gana si … sube/baja" cuando el titular no trae dirección
+                sectores.append(dict(nombre=nombre, signo=efecto, base=base, mixto=(efecto == 0 and d != 0), tickers=tk, porque=porque, directa=False,
                                      tema=tema["clave"], que=tema["que"]))
     if not sectores:
         return None
@@ -236,7 +356,8 @@ def analizar(item: N.Item, permitidas: set[str] | None = None) -> dict[str, Any]
     dirs = [d for _, d in temas]
     return dict(tipo="empresa" if empresas else "tema", empresas=empresas, temas=[t["clave"] for t, _ in temas], nombres=[t["nombre"] for t, _ in temas],
                 direccion=(dirs[0] if dirs else tono(item.titulo)), sectores=sectores, beneficiadas=benef, afectadas=afect, expuestas=exp,
-                factor=(temas[0][0].get("factor") if temas else None), que=(temas[0][0]["que"] if temas else None))
+                factor=(temas[0][0].get("factor") if temas else None), que=(temas[0][0]["que"] if temas else None),
+                explica=(EXPLICA.get(temas[0][0]["clave"], "") if temas else EXPLICA_EMPRESA))
 
 
 # ------------------------------------------------------------------ leer las fuentes
@@ -324,6 +445,13 @@ class Lector:
             tareas.append(("Yahoo Finance (por acción)", self._yahoo))
         if self.m.get("superfinanciera", True) and self.cfg["noticias_bvc"]["fuentes"]["sfc"]["activo"] and toca({"cada_rondas": self.m.get("sfc_cada_rondas", 2)}):
             tareas.append(("Superfinanciera", lambda: self.base.sfc(ahora)))
+        g = self.m.get("google") or {}
+        consultas = g.get("consultas") or []
+        if g.get("activo") and consultas and completo:
+            tareas.append(("Google Noticias (temas de Colombia)", lambda: [i for q in consultas for i in self.base.google(q)]))
+        elif g.get("activo") and consultas and toca(g):
+            q = consultas[(self.ronda // max(int(g.get("cada_rondas", 1)), 1)) % len(consultas)]
+            tareas.append(("Google Noticias (temas de Colombia)", lambda: self.base.google(q)))
         self.ronda += 1
         activas = [(n, fn) for n, fn in tareas if completo or self.fallos.get(n, 0) < 3 or self.ronda % 10 == 0]
 
@@ -376,7 +504,8 @@ def recortar(texto: str, n: int = 320) -> str:
 
 
 # ------------------------------------------------------------------ una ronda
-def ronda(lector: Any, mem: Any, ahora: dt.datetime, cfg: dict[str, Any], locales: Callable[[N.Item], bool] | None = None) -> tuple[list[dict[str, Any]], dict[str, bool]]:
+def ronda(lector: Any, mem: Any, ahora: dt.datetime, cfg: dict[str, Any], locales: Callable[[N.Item], bool] | None = None,
+          extra: list[N.Item] | None = None) -> tuple[list[dict[str, Any]], dict[str, bool]]:
     """Lee las fuentes y devuelve las noticias NUEVAS de mercado ya analizadas (cada una con su `item`), más la salud de las fuentes.
     La primera vez sólo toma la línea base (nada de lo que ya estaba publicado se avisa). `locales(item)` = la noticia es de una empresa colombiana que
     ya avisa `noticias_bvc`: aquí no se repite, salvo que además toque un tema de mercado."""
@@ -387,6 +516,7 @@ def ronda(lector: Any, mem: Any, ahora: dt.datetime, cfg: dict[str, Any], locale
     d.setdefault("titulos", [])
     d.setdefault("ultimas", [])
     items, salud = lector.todo(ahora)
+    items = list(items) + list(extra or [])                                            # `extra`: titulares que ya leyó el vigía de empresas (Portafolio, Semana, El Tiempo, Google…)
     d["salud"] = {**d.get("salud", {}), **salud}
     ahora_utc = ahora.astimezone(UTC)
     primera = not d.get("base")

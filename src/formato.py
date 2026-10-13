@@ -690,6 +690,8 @@ def msg_noticia_mercado(a: dict[str, Any], extras: dict[str, Any], ahora: dt.dat
         L += ["", f"📝 {b('Qué pasó')}", esc(extras["resumen"])]
     if extras.get("factor_ahora"):
         L += ["", f"📡 {b('Cómo va el mercado')}", esc(extras["factor_ahora"][:1].upper() + extras["factor_ahora"][1:]) + "."]
+    if a.get("explica"):
+        L += ["", f"🔎 {b('Por qué importa')}", esc(a["explica"])]
 
     def bloque(titulo_b: str, signo: int) -> list[str]:
         filas = [s for s in a["sectores"] if (s["signo"] > 0) - (s["signo"] < 0) == signo]

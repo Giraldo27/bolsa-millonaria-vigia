@@ -464,6 +464,16 @@ noticias_mercado:
   paginas:                                  # portadas sin RSS: se leen los enlaces a las notas
     - {nombre: "Bloomberg Línea (noticias del día)", url: "https://www.bloomberglinea.com/tags/las-noticias-del-dia/", base: "https://www.bloomberglinea.com", cada_rondas: 3}
   yahoo_titulares: {activo: true, url: "https://finance.yahoo.com/rss/headline", por_ronda: 10, cada_rondas: 2}     # titulares por acción, rotando por todas las del concurso
+  google:                                   # búsquedas de los TEMAS de Colombia que mueven a las acciones locales (una cada `cada_rondas` rondas, rotando)
+    activo: true
+    cada_rondas: 3
+    consultas:
+      - 'apagón OR racionamiento OR "crisis energética" OR "fenómeno del Niño" OR "tarifas de energía" Colombia'
+      - '"De la Espriella" anuncia OR decreto OR medidas economía OR energía OR vivienda OR impuestos'
+      - 'Colombia gobierno fracking OR "exploración de hidrocarburos" OR "gas natural" OR regasificadora OR gasolina'
+      - 'Colombia "licencia ambiental" OR megaproyectos OR concesiones OR "subsidios de vivienda" OR peajes'
+      - 'Colombia "salario mínimo" OR IVA OR "tasa de usura" OR "4x1000" OR "reforma tributaria" OR "regla fiscal"'
+      - 'Colombia bolsa "MSCI Colcap" OR "Banco de la República" OR inflación OR dólar mercados'
 
 cambios:                                    # avisos automáticos "cambia esta acción por esta" (src/cambios.py)
   activo: true

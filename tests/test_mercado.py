@@ -323,3 +323,69 @@ def test_la_caida_de_los_bonos_es_tasas_al_alza_y_un_ataque_real_si_es_geopoliti
 def test_las_notas_de_opinion_que_se_colaron_en_la_nube_ya_no_se_avisan(titulo):
     """Primeros cuatro avisos reales en la nube (11-oct-2026): notas de comentario de Yahoo, no noticias."""
     assert MK.analizar(item(titulo), TODAS) is None
+
+
+# =============================== temas de Colombia que mueven a las acciones locales ===============================
+@pytest.mark.parametrize("titulo, sube", [
+    ("De la Espriella fija el 31 de diciembre como fecha límite para evitar apagón en Colombia", -1),
+    ("De la Espriella anunció medidas para evitar apagón y reportó resultados en seguridad", -1),
+    ("Presidente De La Espriella pide traslado presupuestal para enfrentar El Niño y reducir riesgo de racionamiento", -1),
+    ("De La Espriella: Antes del 31 de diciembre estarán en marcha todas las medidas para enfrentar El Niño", -1),
+    ("“Vamos a optimizar todos los instrumentos a nuestro alcance para proteger el servicio y evitar un apagón”: De la Espriella sobre El Niño", -1),
+])
+def test_el_plan_del_presidente_contra_el_apagon_se_avisa_y_favorece_a_isa_y_celsia(titulo, sube):
+    """La noticia que el bot dejó pasar (12-oct-2026): ninguno de estos titulares tocaba un tema, y tres venían de medios que el vigía de mercado no leía."""
+    a = MK.analizar(item(titulo, fuente="Portafolio"), TODAS)
+    assert a is not None and a["temas"][0] == "energia_colombia" and a["direccion"] == sube
+    assert {"ISA", "CELSIA", "GEB"} <= set(a["beneficiadas"]) and not a["afectadas"]
+    assert "plan con plata y con fecha" in a["sectores"][0]["porque"] and len(a["explica"]) > 250       # explicaciones largas, como pidió el usuario
+
+
+def test_la_alarma_de_apagon_sin_plan_es_mixta_para_las_electricas_y_buena_para_el_gas():
+    a = MK.analizar(item("De La Espriella advierte sobre los riesgos energéticos por el fenómeno de El Niño"), TODAS)
+    assert a["temas"][0] == "energia_colombia" and a["direccion"] == 1
+    assert {"ISA", "CELSIA"} <= set(a["expuestas"]) and "PROMIGAS" in a["beneficiadas"] and "CEMARGOS" in a["afectadas"]
+    sin = MK.analizar(item("El Gobierno publicó el informe sobre el sistema eléctrico y las tarifas de energía"), TODAS)       # sin dirección: se dice en qué caso ganan
+    t = F.plano(F.msg_noticia_mercado(dict(sin, item=item("x")), dict(resumen=""), AHORA))
+    assert "Gana si el riesgo de apagón o de racionamiento baja." in t and "🔎 Por qué importa\nLa energía de Colombia depende de las lluvias" in t
+
+
+@pytest.mark.parametrize("titulo, tema, gana, pierde", [
+    ("Gobierno colombiano reserva veinte millones de hectáreas para exploración de hidrocarburos", "hidrocarburos_colombia", "ECOPETROL", None),
+    ("Gobierno De La Espriella aprueba licencia ambiental de megaobra para recuperar El Laguito en Cartagena", "infraestructura_colombia", "CEMARGOS", None),
+    ("Gobierno De La Espriella anuncia conexión vial para el sur de Bolívar: Proyecto avanzará en fase clave", "infraestructura_colombia", "GRUPOARGOS", None),
+    ("El costo de vivir en Colombia: alimentos y pasajes aéreos golpean el bolsillo", "consumo_colombia", None, "EXITO"),
+    ("Sube la mora y aumenta la cartera vencida en el sistema financiero", "banca_colombia", None, "PFBCOLOM"),
+    ("Ejército intervino operación de minería ilegal del Clan del Golfo en Antioquia", "mineria_colombia", "MINEROS", None),
+])
+def test_los_temas_de_politica_colombiana_dicen_a_que_sector_le_pegan(titulo, tema, gana, pierde):
+    a = MK.analizar(item(titulo), TODAS)
+    assert a is not None and tema in a["temas"], (titulo, a and a["temas"])
+    assert gana is None or gana in a["beneficiadas"]
+    assert pierde is None or pierde in a["afectadas"]
+    assert all(len(s["porque"]) > 60 for s in a["sectores"])                               # cada sector explica el mecanismo, no sólo el signo
+
+
+@pytest.mark.parametrize("titulo", [
+    "Cuba abre más espacio a la inversión petrolera para enfrentar su crisis energética",
+    "Venezuela incorporará a mediano plazo unos 7.400 megavatios a su sistema eléctrico",
+    "México no tiene reservas de gas natural en ductos: analistas",
+    "Las remesas pierden más del 20 % de poder adquisitivo en México, advierte el Banco central",
+    "Metro de Medellín anuncia operación especial durante el EDC y Festival Altavoz",
+])
+def test_lo_de_otros_paises_no_cuenta_como_tema_de_colombia(titulo):
+    a = MK.analizar(item(titulo), TODAS)
+    assert a is None or not any(t.endswith("_colombia") for t in a["temas"]), (titulo, a and a["temas"])
+
+
+def test_el_vigia_de_mercado_tambien_usa_los_titulares_que_ya_leyo_el_de_empresas(mem):
+    """Portafolio, Semana, El Tiempo y Google sólo los leía el vigía de empresas, que descarta lo que no nombra a una empresa: ahí se perdían estas noticias."""
+    lec = LectorFalso()
+    MK.ronda(lec, mem, AHORA, CFG)
+    mem.d["mercado"]["base"] = "x"
+    extra = [item("De la Espriella anunció medidas para evitar apagón", fuente="Portafolio")]
+    assert MK.ronda(lec, mem, AHORA, CFG)[0] == []
+    (a,), _ = MK.ronda(lec, mem, AHORA, CFG, extra=extra)
+    assert a["item"].fuente == "Portafolio" and a["temas"] == ["energia_colombia"]
+    assert MK.ronda(lec, mem, AHORA, CFG, extra=extra)[0] == []                             # ya avisada
+    assert len(CFG["noticias_mercado"]["google"]["consultas"]) >= 5 and "apagón" in CFG["noticias_mercado"]["google"]["consultas"][0]

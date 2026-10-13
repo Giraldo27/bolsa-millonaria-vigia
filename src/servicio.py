@@ -1160,7 +1160,7 @@ def extras_mercado(ctx: Contexto, a: dict[str, Any], lector: Any, est: Estado) -
     return out
 
 
-def tick_mercado(ctx: Contexto, lector: Any, mem: Any) -> list[str]:
+def tick_mercado(ctx: Contexto, lector: Any, mem: Any, extra: list[Any] | None = None) -> list[str]:
     """Una ronda del vigía de mercado (cada minuto): lee las fuentes y avisa cada noticia nueva de mercado con titular, enlace, resumen, acciones beneficiadas
     y afectadas, sectores con su porqué y el movimiento esperado a una semana."""
     from . import mercado as MK
@@ -1168,11 +1168,13 @@ def tick_mercado(ctx: Contexto, lector: Any, mem: Any) -> list[str]:
     if not (ctx.cfg.get("noticias_mercado") or {}).get("activo"):
         return []
     emisores = N.emisores_cfg(ctx.cfg)
-    nuevas, _ = MK.ronda(lector, mem, ctx.ahora, ctx.cfg, locales=lambda it_: bool(N.emisores_de(it_, emisores)))
+    nuevas, _ = MK.ronda(lector, mem, ctx.ahora, ctx.cfg, locales=lambda it_: bool(N.emisores_de(it_, emisores)), extra=extra)
     mensajes = []
     if nuevas:
         est = leer_estado(ctx)
         for a in nuevas:
+            if a["item"].origen == "google" and hasattr(getattr(lector, "base", None), "enlace_real"):
+                a["item"].url = lector.base.enlace_real(a["item"].url)                 # el enlace abre la nota, no la página intermedia de Google
             m = F.msg_noticia_mercado(a, extras_mercado(ctx, a, lector, est), ctx.ahora)
             mensajes.append(m)
             enviar_o_encolar(ctx, m, BOTONES_MERCADO)

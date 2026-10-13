@@ -83,7 +83,7 @@ class Vigia:
         """Noticias de mercado (macro, geopolítica, empresas globales) de las fuentes configuradas: una ronda por minuto."""
         ctx = S.crear_contexto()
         with self._candado_mem:
-            msgs = S.tick_mercado(ctx, self.lector_m, self.mem)
+            msgs = S.tick_mercado(ctx, self.lector_m, self.mem, list(getattr(self.lector, "ultimos", []) or []))      # también los titulares que ya leyó el vigía de empresas
         if msgs:
             log.info("mercado: %d aviso(s) enviados", len(msgs))
             self.guardar(True)
