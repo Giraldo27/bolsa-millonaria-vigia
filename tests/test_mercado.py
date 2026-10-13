@@ -202,15 +202,17 @@ def test_lo_viejo_no_se_avisa_y_si_salen_muchas_a_la_vez_el_resto_sale_despues(m
     assert len(primera) == CFG["noticias_mercado"]["max_por_ronda"] == 4 and len(segunda) == 2    # ninguna se pierde
 
 
-def test_la_noticia_de_una_empresa_colombiana_no_se_repite_aqui_salvo_que_toque_un_tema(mem):
+def test_la_noticia_de_una_empresa_colombiana_no_se_repite_aqui(mem):
     lec = LectorFalso()
     MK.ronda(lec, mem, AHORA, CFG)
     mem.d["mercado"]["base"] = "x"
     emisores = N.emisores_cfg(CFG)
     local = lambda it: bool(N.emisores_de(it, emisores))                                    # noqa: E731
     lec.items = [item("Ecopetrol anuncia nuevo presidente"), item("Ecopetrol sube mientras el petróleo Brent se dispara 5%", minutos=2)]
+    assert MK.ronda(lec, mem, AHORA, CFG, locales=local)[0] == []                          # las dos las avisa el vigía de empresas: avisarlas aquí sería repetirlas
+    lec.items.append(item("El petróleo Brent se dispara 5% por la tensión en Medio Oriente", minutos=1))
     (a,), _ = MK.ronda(lec, mem, AHORA, CFG, locales=local)
-    assert "petroleo" in a["temas"]                                                         # la primera la avisa el vigía de empresas; ésta trae un tema de mercado
+    assert "petroleo" in a["temas"] or "geopolitica" in a["temas"]                          # la de tema, que no nombra a ninguna empresa colombiana, sí
 
 
 # =============================== el servicio: con los indicadores del bot ===============================

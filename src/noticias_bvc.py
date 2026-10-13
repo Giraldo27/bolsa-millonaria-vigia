@@ -254,6 +254,105 @@ def es_repetida(titulo: str, previos: list[list[str]], umbral: float) -> bool:
     return False
 
 
+# ---- la misma historia contada con otras palabras ---------------------------------------------------------------------------------------------
+# Dos titulares pueden no compartir casi ninguna palabra y ser la misma noticia ("Paz laboral en Bancolombia" / "Bancolombia presentó nuevos beneficios
+# para sus empleados tras conversaciones sindicales"). Además de las palabras se comparan tres cosas: las CIFRAS, de QUÉ trata (concepto) y a QUIÉN nombra.
+CONCEPTOS: list[tuple[str, str]] = [
+    ("laboral", r"sindic\w+|convencion colectiva|trabajador\w*|emplead\w+|salarial\w*|laboral\w*|huelga"),
+    ("judicial", r"investig\w+|denunci\w+|fiscalia|demanda\w*|dossier|senalad\w+|auditor\w+|sancion\w*|multa\w*|irregularidad\w*|corrupcion|contralor\w+|procuradur\w+|presiones"),
+    ("directivos", r"nuevo presidente|presidente de la junta|junta directiva|nombr\w+|renunci\w+|\bceo\b|gerente|exvicepresident\w+|exdirectiv\w+|vicepresident\w+|liderazgo|lideranza"),
+    ("resultados", r"utilidad\w*|ganancia\w*|resultados|ebitda|perdidas"),
+    ("economia", r"nowcast|\bpib\b|economia colombiana|crecimiento economico"),
+    ("dividendo", r"dividendo\w*"),
+    ("recompra", r"recompra\w*|readquisicion\w*"),
+    ("deuda", r"\bbonos?\b|emision\w*|credito sindicado|refinanci\w+|\bdeuda\b"),
+    ("compra_venta", r"adquisicion\w*|adquiere|adquirio|compra de|venta de|fusion\w*|\bopa\b|oferta publica"),
+    ("social", r"donaci\w+|fundacion|damnificad\w+|terremoto|viviendas|beca\w*|voluntari\w+|afectados por"),
+    ("producto", r"\blanza\w*|nuevo servicio|nueva app|suscripcion\w*|planes de|cuentas? de ahorro|tarjeta\w*"),
+    ("servicio", r"apagon\w*|cortes? de (luz|energia)|tarifas?|suspension\w* de(l)? servicio"),
+    ("exploracion", r"exploracion|hallazgo\w*|\bpozos?\b|importacion de gas|campana exploratoria"),
+    ("fraude", r"estafa\w*|fraude\w*|mensajes? falsos?|llamadas|advertencia|suplanta\w+"),
+    ("venezuela", r"venezuela"),
+]
+GENERICAS = set("""el la los las un una unos unas de del al en por para con sin sobre tras ante desde hasta y o que como cuando donde asi este esta estos estas su sus mas menos
+nuevo nueva nuevos nuevas gobierno presidente ministro ministra ministerio colombia colombiano colombiana colombianos bogota estados unidos ee uu eeuu wall street bolsa mercado mercados
+acciones accion precio precios dolar petroleo oro inflacion banco bancos fed reserva federal trump video premercado entrevista exclusiva ampliacion relevante analisis opinion
+lunes martes miercoles jueves viernes sabado domingo enero febrero marzo abril mayo junio julio agosto septiembre octubre noviembre diciembre hoy ayer manana semana
+congreso senado camara corte consejo estado superfinanciera dane banrep fmi onu tesoro brent wti nasdaq dow jones colcap msci ia ai pib ipc trm usd cop por que quien cual cuanto
+asi estas estos se no si ya lo le les nos me te tu yo es son fue sera seran hay han ha""".split())
+
+
+def conceptos_de(titulo: str) -> set[str]:
+    t = norm(titulo)
+    return {c for c, patron in CONCEPTOS if re.search(r"\b(" + patron + r")\b", t)}
+
+
+def cifras_de(titulo: str) -> set[str]:
+    """Las cifras del titular en una forma comparable entre medios e idiomas: '5.000 millones', '$5 billion' y '5 mil millones' → '5000M'; '2,1 %' → '21%'.
+    No cuentan los años ni los números sueltos de una o dos cifras (un '31' de fecha no identifica una noticia)."""
+    t = norm(titulo).replace("us$", "$")
+    out = set()
+    for num, unidad in re.findall(r"(\d[\d.,]*)\s*(%|mil millones|billones|billion|millones|million|trillion)?", t):
+        d = re.sub(r"\D", "", num)
+        if not d:
+            continue
+        if unidad in ("mil millones", "billion"):
+            out.add(str(int(d)) + "000M" if len(d) <= 3 else d + "M")
+        elif unidad in ("millones", "million"):
+            out.add(d + "M")
+        elif unidad in ("billones", "trillion"):
+            out.add(d + "B")
+        elif unidad == "%":
+            out.add(d + "%")
+        elif len(d) >= 3 and not re.fullmatch(r"(19|20)\d\d", d):
+            out.add(d)
+    return out
+
+
+def entidades_de(titulo: str) -> set[str]:
+    """A quién nombra el titular: las palabras con mayúscula inicial que no son genéricas (Tencent, Zelenski, Riad…). Sirve para reconocer la misma historia
+    en dos titulares distintos. En un titular en inglés (todo con mayúsculas) no es fiable: por eso antes se traduce."""
+    palabras = re.findall(r"[A-Za-zÁÉÍÓÚÑáéíóúñü][\wÁÉÍÓÚÑáéíóúñü'’-]*", titulo or "")
+    out = set()
+    for w in palabras:
+        if w[0].isupper() and len(w) >= 4:
+            n = norm(w).strip("'’-")
+            if n and n not in GENERICAS and not conceptos_de(n):                       # "Trabajadores", "Investigación": palabras del tema, no protagonistas
+                out.add(n)
+    return out
+
+
+def firma(titulo: str) -> dict[str, list[str]]:
+    """Lo que identifica a una noticia: sus palabras, sus cifras, de qué trata y a quién nombra."""
+    return dict(pal=sorted(palabras_clave(titulo)), cif=sorted(cifras_de(titulo)), con=sorted(conceptos_de(titulo)), ent=sorted(entidades_de(titulo)))
+
+
+def parecido(a: list[str] | set[str], b: list[str] | set[str]) -> float:
+    a, b = set(a), set(b)
+    return len(a & b) / min(len(a), len(b)) if a and b else 0.0
+
+
+def repetida_emisor(titulo: str, entradas: list[list[Any]], umbral: float, ahora_iso: str = "", horas_concepto: float = 48) -> bool:
+    """¿Ya se avisó ESTA noticia de la misma empresa? Sí, si comparte la mitad de las palabras con una ya avisada, o una cifra, o (en las últimas 48 h) trata
+    de lo mismo sin nombrar a nadie nuevo: dos notas sobre el acuerdo laboral del banco son la misma historia aunque no compartan palabras; una sanción de la
+    SIC y otra de la Superservicios a la misma empresa son dos noticias."""
+    f = firma(titulo)
+    for e in entradas:
+        if parecido(f["pal"], e[1]) >= umbral:
+            return True
+        if len(e) > 3 and set(f["cif"]) & set(e[3]):
+            return True
+        nuevos = set(f["ent"]) - set(e[4]) if len(e) > 4 else set()                    # ¿nombra a alguien que la anterior no nombraba? (otra entidad, otra persona)
+        if len(e) > 2 and set(f["con"]) & set(e[2]) and not nuevos:
+            try:
+                reciente = not ahora_iso or (dt.datetime.fromisoformat(ahora_iso) - dt.datetime.fromisoformat(e[0])).total_seconds() <= horas_concepto * 3600
+            except ValueError:
+                reciente = True
+            if reciente:
+                return True
+    return False
+
+
 class _SinRed:
     """Sustituto de la conexión cuando el lector no tiene una (pruebas): no se descarga ningún artículo."""
     def get(self, *a: Any, **k: Any) -> Any:
@@ -647,8 +746,8 @@ def ronda(lector: Lector, mem: Memoria, f: Any, ahora: dt.datetime, cfg: dict[st
     hace_1h = (ahora_utc - dt.timedelta(hours=1)).isoformat(timespec="seconds")
     medias = mem.d["medias"] = [x for x in mem.d.get("medias", []) if x >= hace_1h]       # avisos de noticias relevantes en la última hora (tope)
     otras = mem.d["otras"] = [x for x in mem.d.get("otras", []) if x >= hace_1h]          # ídem para "otras noticias"
-    hace_12h = (ahora_utc - dt.timedelta(hours=12)).isoformat(timespec="seconds")
-    titulos = mem.d["titulos"] = {k: [x for x in v if x[0] >= hace_12h] for k, v in mem.d.get("titulos", {}).items()}     # titulares ya avisados por empresa
+    hace_36h = (ahora_utc - dt.timedelta(hours=n.get("memoria_repetidas_h", 36))).isoformat(timespec="seconds")
+    titulos = mem.d["titulos"] = {k: [x for x in v if x[0] >= hace_36h] for k, v in mem.d.get("titulos", {}).items()}     # noticias ya avisadas por empresa (palabras, conceptos, cifras)
     liq_min = n["recomendacion"]["liquidez_min_cop_mm"]
     for (nombre, cat), g in grupos.items():
         e: Emisor = g["emisor"]
@@ -691,6 +790,8 @@ def ronda(lector: Lector, mem: Memoria, f: Any, ahora: dt.datetime, cfg: dict[st
             nivel = "medio"                                                            # nunca se recomienda comprar una acción que no pasa el filtro: aviso informativo
         items = sorted(g["items"], key=lambda i: (i.origen != "sfc", -i.ts.timestamp()))
         previos = [x[1] for x in titulos.get(nombre, [])]
+        if repetida_emisor(items[0].titulo, titulos.get(nombre, []), n["parecido_repetida"], ahora_utc.isoformat(timespec="seconds")):
+            continue                                                                   # la misma noticia ya se avisó (otro medio, otras palabras): NUNCA se repite, sea del nivel que sea
         if nivel == "bajo":
             if lleno(otras, n["max_otras_hora"]) or es_repetida(items[0].titulo, previos, n["parecido_repetida"]):
                 continue                                                               # misma noticia en otro medio (o tope por hora, si se configuró)
@@ -723,7 +824,8 @@ def ronda(lector: Lector, mem: Memoria, f: Any, ahora: dt.datetime, cfg: dict[st
             otras.append(marca)
         else:
             mem.d["avisos"][f"{s.emisor}|{s.sentido:+d}"] = marca
-        titulos.setdefault(s.emisor, []).append([marca, sorted(palabras_clave(s.items[0].titulo))])
+        f_ = firma(s.items[0].titulo)
+        titulos.setdefault(s.emisor, []).append([marca, f_["pal"], f_["con"], f_["cif"], f_["ent"]])
         mem.d["senales"].append(dict(ts=ahora_utc.isoformat(timespec="minutes"), emisor=s.emisor, ticker=s.ticker, cat=s.cat, sentido=s.sentido,
                                      puntaje=round(s.puntaje, 2), titulo=s.items[0].titulo[:200], fuente=s.items[0].fuente, url=s.items[0].url,
                                      accion=s.rec["accion"], salida=s.rec["salida"].isoformat() if s.rec.get("salida") else None, nivel=s.nivel, impacto=s.impacto))

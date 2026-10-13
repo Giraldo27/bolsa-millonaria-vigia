@@ -438,7 +438,9 @@ noticias_mercado:
   activo: true
   cada_s: 60                                # una ronda por minuto
   ventana_min: 180                          # sólo noticias publicadas en las últimas 3 horas
-  enfriamiento_tema_min: 20                 # el mismo tema en la misma dirección no se repite antes de 20 minutos (cada medio publica la misma noticia)
+  enfriamiento_tema_min: 120                # el mismo tema en la misma dirección no se repite antes de 2 horas (antes 20 min: cada medio contaba lo mismo y llegaba repetido)
+  memoria_repetidas_h: 24                   # cuánto se recuerda lo ya avisado para no repetirlo
+  parecido_mismo_tema: 0.34                 # dentro del mismo tema basta compartir un tercio de las palabras para ser la misma noticia
   max_por_ronda: 4                          # si salen más de 4 a la vez, las demás salen en la ronda siguiente (no se pierden)
   parecido_repetida: 0.5                    # titular que comparte la mitad de sus palabras con otro ya avisado (12 h) = la misma noticia en otro medio
   horizonte_sesiones: 5                     # el análisis es de corto plazo: lo que puede moverse cada acción en UNA semana de bolsa
@@ -529,6 +531,7 @@ noticias_bvc:
   max_otras_hora: 0                         # 0 = sin tope por hora de "otras noticias" (pedido del usuario). Lo único que se filtra son las repetidas
   impacto_otra: 0.003                       # impacto que se le pone a una noticia que NO es un hecho del negocio (política, notas de color): 0,3 %. Fijado a mano:
                                             # el día de un anuncio "sin tipo" la acción se mueve casi lo mismo que un día cualquiera, o sea que casi no pesa
+  memoria_repetidas_h: 72                   # cuánto se recuerda lo ya avisado de cada empresa para no repetirlo (palabras, cifras y de qué trata)
   avisar_sin_liquidez: true                 # también se avisan las noticias de empresas que se negocian poco en trii, marcadas así (el usuario no quiere
                                             # perderse ningún movimiento, 11-oct-2026); nunca salen con recomendación de compra
   parecido_repetida: 0.5                    # un titular que comparte la mitad de sus palabras con otro ya avisado de la misma empresa (12 h) es la misma noticia en otro medio

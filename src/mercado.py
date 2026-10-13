@@ -503,6 +503,44 @@ def recortar(texto: str, n: int = 320) -> str:
     return (t[:corte + 1] if corte > n * 0.5 else t[:n].rsplit(" ", 1)[0] + "…").strip()
 
 
+# ------------------------------------------------------------------ ¿ya se avisó esta historia?
+def _nombres_de(empresas: list[str]) -> set[str]:
+    """Las palabras con que se nombra a esas empresas (para no tomar 'Nvidia' como la pista de que dos noticias de Nvidia son la misma)."""
+    out: set[str] = set()
+    for t, patrones, _, _ in GLOBALES:
+        if t in empresas:
+            out |= set(re.findall(r"[a-z]{4,}", " ".join(patrones)))
+    return out
+
+
+def repetida(f: dict[str, list[str]], sujetos: set[str], direccion: int, historias: list[dict[str, Any]], ahora_utc: dt.datetime, m: dict[str, Any],
+             propias: set[str] | None = None) -> str | None:
+    """Por qué esta noticia es la MISMA que una ya avisada (o None si es nueva). Reglas, de la más segura a la más amplia:
+      1. comparte la mitad de sus palabras con una ya avisada (la misma nota en otro medio);
+      2. es del mismo tema o empresa y comparte una CIFRA ("5.000 millones", "4.160");
+      3. es del mismo tema y nombra a los mismos protagonistas (Tencent, Zelenski, Riad) en las últimas 12 horas;
+      4. es del mismo tema y comparte un tercio de sus palabras;
+      5. es del mismo tema y va en la misma dirección (o no dice dirección) dentro del tiempo de enfriamiento: el mismo movimiento contado otra vez.
+    Lo único que pasa dentro de ese tiempo es un GIRO del mismo tema (de subir a bajar o al revés), que sí es una noticia distinta."""
+    ents = set(f["ent"]) - set(propias or ())
+    for h in historias:
+        edad_min = (ahora_utc - dt.datetime.fromisoformat(h["ts"])).total_seconds() / 60
+        sim = N.parecido(f["pal"], h["pal"])
+        if sim >= m["parecido_repetida"]:
+            return "mismas palabras"
+        if "*" not in h["sujetos"] and not (sujetos & set(h["sujetos"])):
+            continue
+        if set(f["cif"]) & set(h["cif"]):
+            return "misma cifra"
+        if edad_min <= 12 * 60 and ents & (set(h["ent"]) - set(propias or ())):
+            return "mismos protagonistas"
+        if sim >= m.get("parecido_mismo_tema", 0.34):
+            return "parecida, mismo tema"
+        if (h["dir"] == direccion or 0 in (h["dir"], direccion)) and edad_min < m["enfriamiento_tema_min"]:      # sin dirección clara cuenta como la misma: sólo un giro es noticia nueva
+            return "mismo tema y dirección hace poco"
+    return None
+
+
 # ------------------------------------------------------------------ una ronda
 def ronda(lector: Any, mem: Any, ahora: dt.datetime, cfg: dict[str, Any], locales: Callable[[N.Item], bool] | None = None,
           extra: list[N.Item] | None = None) -> tuple[list[dict[str, Any]], dict[str, bool]]:
@@ -535,8 +573,11 @@ def ronda(lector: Any, mem: Any, ahora: dt.datetime, cfg: dict[str, Any], locale
             mem.sucia = True
         return [], salud
     limite = ahora_utc - dt.timedelta(minutes=m["ventana_min"])
-    hace_12h = (ahora_utc - dt.timedelta(hours=12)).isoformat(timespec="seconds")
-    d["titulos"] = [x for x in d["titulos"] if x[0] >= hace_12h]
+    desde = (ahora_utc - dt.timedelta(hours=m.get("memoria_repetidas_h", 24))).isoformat(timespec="seconds")
+    if "historias" not in d:                                                           # primera vez con esta memoria: lo que ya se avisó antes tampoco se repite
+        d["historias"] = [dict(ts=x["ts"], sujetos=["*"], dir=x.get("direccion", 0), **{k: v for k, v in N.firma(x["titulo"]).items() if k in ("pal", "cif", "ent")})
+                          for x in d.get("ultimas", [])]
+    d["historias"] = [x for x in d["historias"] if x["ts"] >= desde]                   # lo ya avisado, para no repetirlo
     out: list[dict[str, Any]] = []
     marca = ahora_utc.isoformat(timespec="seconds")
     for h, it in sorted(nuevos, key=lambda p: -p[1].ts.timestamp()):
@@ -547,17 +588,17 @@ def ronda(lector: Any, mem: Any, ahora: dt.datetime, cfg: dict[str, Any], locale
         if it.ts < limite or it.ts > ahora_utc + dt.timedelta(minutes=10):
             continue
         a = analizar(it, permitidas)
-        if a is None or (locales and locales(it) and not a["temas"]):
-            continue
-        if N.es_repetida(it.titulo, [x[1] for x in d["titulos"]], m["parecido_repetida"]):
-            continue                                                                   # la misma noticia en otro medio
-        clave = (a["temas"][0] if a["temas"] else "emp:" + a["empresas"][0]) + f"|{a['direccion']:+d}"
-        ult = d["temas"].get(clave)
-        if ult and (ahora_utc - dt.datetime.fromisoformat(ult)).total_seconds() / 60 < m["enfriamiento_tema_min"]:
-            continue                                                                   # mismo tema y misma dirección hace un momento
-        d["temas"][clave] = marca
-        d["titulos"].append([marca, sorted(N.palabras_clave(it.titulo))])
-        a["item"] = it
+        if a is None or (locales and locales(it)):
+            continue                                                                   # la noticia de una empresa colombiana ya la avisa el vigía de empresas: aquí sería repetirla
+        titulo_es = it.titulo
+        if it.fuente in getattr(lector, "en_ingles", ()) and hasattr(lector, "traducir"):
+            titulo_es = lector.traducir(it.titulo) or it.titulo                        # se compara en español: la misma noticia llega en los dos idiomas
+        f = N.firma(titulo_es)
+        sujetos = set(a["temas"]) | {"emp:" + e for e in a["empresas"]}
+        if repetida(f, sujetos, a["direccion"], d["historias"], ahora_utc, m, propias=_nombres_de(a["empresas"])):
+            continue                                                                   # la misma historia ya se avisó: no se repite
+        d["historias"].append(dict(ts=marca, sujetos=sorted(sujetos), dir=a["direccion"], pal=f["pal"], cif=f["cif"], ent=f["ent"]))
+        a["item"], a["titulo_es"] = it, titulo_es
         out.append(a)
         d["ultimas"].append(dict(ts=marca, titulo=it.titulo[:220], fuente=it.fuente, url=it.url, nombres=a["nombres"], empresas=a["empresas"], direccion=a["direccion"],
                                  beneficiadas=a["beneficiadas"][:8], afectadas=a["afectadas"][:8], expuestas=a["expuestas"][:8]))

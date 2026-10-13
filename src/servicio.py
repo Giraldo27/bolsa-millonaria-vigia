@@ -1128,7 +1128,7 @@ def extras_mercado(ctx: Contexto, a: dict[str, Any], lector: Any, est: Estado) -
         resumen = MK.resumen_limpio(lector.resumen_de(it_.url))
     titulo, en_ingles = it_.titulo, False
     if it_.fuente in getattr(lector, "en_ingles", set()) and hasattr(lector, "traducir"):    # todo el aviso en español
-        t_es = lector.traducir(it_.titulo)
+        t_es = a.get("titulo_es") if a.get("titulo_es") and a["titulo_es"] != it_.titulo else lector.traducir(it_.titulo)
         titulo, en_ingles = (t_es, False) if t_es else (it_.titulo, True)
         if resumen:
             resumen = lector.traducir(resumen) or ""                                   # un resumen a medias en inglés confunde más de lo que ayuda

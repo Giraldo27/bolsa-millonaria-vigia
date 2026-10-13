@@ -208,3 +208,118 @@ def test_sin_precio_de_hoy_la_macro_tampoco_se_cuenta(c, monkeypatch):
     t = F.plano("\n".join(ch["lineas"]))
     assert not any("macro" in x for x in ch["pros"] + ch["contras"])
     assert "bajó 0,9% en la última sesión (lun 05/10)" in t and "Todavía no tengo el precio de hoy de ECOPETROL para confirmar que lo esté siguiendo" in t
+
+
+# =============================== nunca la misma noticia dos veces ===============================
+# Casos reales del 8 al 12 de octubre de 2026: lo que el bot envió repetido.
+def _mem(tmp_path):
+    from src import noticias_bvc as N
+    m = N.Memoria(tmp_path / "rep.json")
+    m.d["mercado"] = dict(base="x", vistos={}, temas={}, titulos=[], ultimas=[], historias=[])
+    return m
+
+
+class _Lec:
+    """Lector de prueba: entrega los titulares que se le pongan y "traduce" con un diccionario fijo."""
+    en_ingles = {"Bloomberg (tecnología)", "Investing.com"}
+    TRAD = {"Tencent Kicks Off $5 Billion Bond Sale to Finance AI Spending": "Tencent inicia la venta de bonos por valor de 5.000 millones de dólares para financiar el gasto en IA",
+            "Tencent sells dollar, dim sum bonds amid AI spending spree": "Tencent vende bonos en dólares y dim sum en medio de una ola de gastos en IA",
+            "Gold slips near $4,160 as Middle East tensions fuel rate-hike concerns": "El oro cae cerca de 4.160 dólares mientras las tensiones en Oriente Medio alimentan la preocupación por una subida de tasas"}
+
+    def __init__(self):
+        self.items = []
+
+    def todo(self, ahora, completo=False):
+        return list(self.items), {"x": True}
+
+    def traducir(self, t):
+        return self.TRAD.get(t)
+
+
+def _it(titulo, fuente, minutos_despues=0):
+    from src import noticias_bvc as N
+    return N.Item(AHORA.astimezone(dt.timezone.utc) + dt.timedelta(minutes=minutos_despues - 1), titulo, "", fuente, "https://e.co/" + str(abs(hash(titulo)) % 9999), "rss")
+
+
+def _pasan(tmp_path, entregas):
+    """Va entregando titulares (titulo, fuente, minutos) uno por uno, como llegan en la realidad, y devuelve los que el bot avisaría."""
+    from src import mercado as MK
+    mem, lec, salen = _mem(tmp_path), _Lec(), []
+    for titulo, fuente, minuto in entregas:
+        lec.items.append(_it(titulo, fuente, minuto))
+        nuevas, _ = MK.ronda(lec, mem, AHORA + dt.timedelta(minutes=minuto), CFG)
+        salen += [a["item"].titulo for a in nuevas]
+    return salen
+
+
+def test_la_misma_noticia_en_tres_medios_y_dos_idiomas_sale_una_sola_vez(tmp_path):
+    salen = _pasan(tmp_path, [("Tencent prepara una emisión de bonos por US$5.000 millones para financiar sus inversiones en IA", "Bloomberg Línea", 0),
+                              ("Tencent Kicks Off $5 Billion Bond Sale to Finance AI Spending", "Bloomberg (tecnología)", 69),
+                              ("Tencent sells dollar, dim sum bonds amid AI spending spree", "Investing.com", 210)])
+    assert salen == ["Tencent prepara una emisión de bonos por US$5.000 millones para financiar sus inversiones en IA"]
+
+
+def test_la_misma_cifra_del_mismo_tema_es_la_misma_noticia_aunque_cambie_el_idioma(tmp_path):
+    salen = _pasan(tmp_path, [("El oro cae cerca de los 4.160 dólares por las tensiones en Oriente Próximo", "Investing.com (español)", 0),
+                              ("Gold slips near $4,160 as Middle East tensions fuel rate-hike concerns", "Investing.com", 2)])
+    assert len(salen) == 1
+
+
+def test_el_mismo_tema_contado_otra_vez_no_sale_pero_un_giro_si(tmp_path):
+    salen = _pasan(tmp_path, [("Las acciones de chips caen en Asia tras las pérdidas de los semiconductores en EE. UU.", "Bloomberg Línea", 0),
+                              ("Los fabricantes de chips coreanos se hunden por el temor a rivales chinos", "Valora Analitik", 33),      # misma dirección, 33 minutos después
+                              ("La liquidación de semiconductores provoca nerviosismo en Seúl", "La República", 86),                    # sin dirección clara: también es la misma
+                              ("Los chips rebotan con fuerza: Nvidia y TSMC se disparan tras nuevos pedidos", "Valora Analitik", 100)])   # GIRO: de caer a subir
+    assert len(salen) == 2 and "caen en Asia" in salen[0] and "rebotan" in salen[1]
+
+
+def test_un_tema_distinto_o_una_noticia_distinta_del_mismo_tema_horas_despues_si_salen(tmp_path):
+    salen = _pasan(tmp_path, [("Petróleo Brent se dispara 5% por la tensión en Medio Oriente", "Bloomberg Línea", 0),
+                              ("Dólar en Colombia cae y la TRM rompe los $3.200", "Valora Analitik", 5),                                # otro tema: sale
+                              ("El crudo sube otra vez tras nuevos ataques", "La República", 30),                                        # mismo tema y dirección, 30 min: no
+                              ("La OPEP anuncia un recorte sorpresa y el barril salta a US$112", "Portafolio", 200)])                    # 3 horas después y con hechos nuevos: sale
+    assert len(salen) == 3 and not any("otra vez" in t for t in salen)
+
+
+@pytest.mark.parametrize("primera, segunda", [
+    ("Bancolombia acuerda aumento salarial del 10,15 % y más beneficios en salud y vivienda para 11.000 empleados",
+     "Bancolombia presentó nuevos beneficios para sus empleados tras conversaciones sindicales"),                                         # de qué trata: lo laboral
+    ("Bancolombia acuerda aumento salarial del 10,15 % y más beneficios en salud y vivienda para 11.000 empleados",
+     "Paz laboral en Bancolombia: ¿de cuánto será el incremento salarial en el banco más grande del país?"),
+    ("Economía colombiana pierde tracción en el tercer trimestre de 2026: NowCast Bancolombia proyecta un PIB de 2,1 %",
+     "Bancolombia estimó que la economía colombiana creció apenas 2,1% en el tercer trimestre"),                                          # la misma cifra
+    ("Bancolombia aportó 46,6% de la financiación a Altia para adquisición de portafolio a Isagen",
+     "Bancolombia impulsa la adquisición de activos de energía renovable de Altia a ISAGEN en Colombia"),
+    ("Senador Enrique Gómez pide al presidente de Ecopetrol investigar si la compañía dio beneficios especiales a la firma Química Comercial Andina",
+     "Senador Enrique Gómez pide a Ecopetrol investigar ventas de polietileno a empresa Química Comercial Andina"),
+])
+def test_las_noticias_de_empresa_que_llegaron_repetidas_ya_no_se_repiten(primera, segunda):
+    from src import noticias_bvc as N
+    f = N.firma(primera)
+    entradas = [["2026-10-08T22:12:00+00:00", f["pal"], f["con"], f["cif"], f["ent"]]]
+    assert N.repetida_emisor(segunda, entradas, CFG["noticias_bvc"]["parecido_repetida"], "2026-10-09T16:00:00+00:00")
+
+
+def test_dos_noticias_distintas_de_la_misma_empresa_si_salen():
+    from src import noticias_bvc as N
+    f = N.firma("SIC sanciona a Celsia con multa millonaria")
+    entradas = [["2026-10-06T15:00:00+00:00", f["pal"], f["con"], f["cif"], f["ent"]]]
+    ahora = "2026-10-06T16:30:00+00:00"
+    assert not N.repetida_emisor("Superservicios impone sanción a Celsia y abre investigación", entradas, 0.5, ahora)       # otra entidad sanciona: es otra noticia
+    assert not N.repetida_emisor("Celsia gana contrato de energía solar en Panamá", entradas, 0.5, ahora)                  # otro asunto
+    assert N.repetida_emisor("La SIC multa a Celsia", entradas, 0.5, ahora)                                               # la misma, más corta
+    assert N.cifras_de("bonos por US$5.000 millones") == N.cifras_de("a $5 billion bond sale") == N.cifras_de("5 mil millones de dólares") == {"5000M"}
+    assert N.cifras_de("creció 2,1 % en 2026") == {"21%"} and N.cifras_de("fecha límite el 31 de diciembre de 2026") == set()
+
+
+def test_al_actualizar_el_bot_lo_que_ya_habia_avisado_tampoco_se_repite(tmp_path):
+    """La memoria vieja no traía el registro de historias: se arma con los avisos ya enviados, para que el primer minuto tras una actualización no los repita."""
+    from src import mercado as MK
+    from src import noticias_bvc as N
+    mem = N.Memoria(tmp_path / "vieja.json")
+    hace_1h = (AHORA.astimezone(dt.timezone.utc) - dt.timedelta(hours=1)).isoformat(timespec="seconds")
+    mem.d["mercado"] = dict(base="x", vistos={}, temas={}, titulos=[], ultimas=[dict(ts=hace_1h, titulo="Tencent prepara una emisión de bonos por US$5.000 millones para financiar sus inversiones en IA",
+                                                                                   fuente="Bloomberg Línea", url="", nombres=["Inteligencia artificial y chips"], empresas=[], direccion=0)])
+    lec = _Lec()
+    lec.items = [_it("Tencent Kicks Off $5 Billion Bond Sale to Finance AI Spending", "Bloomberg (tecnología)")]
+    assert MK.ronda(lec, mem, AHORA, CFG)[0] == [] and len(mem.d["mercado"]["historias"]) == 1
