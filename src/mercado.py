@@ -34,7 +34,8 @@ T = dict
 TEMAS: list[dict[str, Any]] = [
     T(clave="petroleo", nombre="Petróleo", factor="petroleo", que="el precio del petróleo",
       patrones=[r"\bpetroleo\b", r"\bcrudo\b", r"\bbrent\b", r"\bwti\b", r"\bopep\b", r"\bopec\b", r"\bcrude\b",
-                r"\boil (price|prices|jump\w*|fall\w*|rise\w*|surge\w*|slide\w*|drop\w*|rall\w+|market|futures|supply|output|demand|climb\w*|slump\w*|soar\w*|tumble\w*|steadies|settles)"],
+                r"\boil (price|prices|jump\w*|fall\w*|rise\w*|surge\w*|slide\w*|drop\w*|rall\w+|market|futures|supply|output|demand|climb\w*|slump\w*|soar\w*|tumble\w*|steadies|settles|"
+                r"lower|higher|edge\w*|gain\w*|advance\w*|retreat\w*|decline\w*|extend\w*|hold\w*|steady|reverse\w*|slip\w*|sink\w*|spike\w*)\b"],
       efectos=[(+1, "petróleo y gas", ["ECOPETROL", "PBR", "CNEC"], "venden crudo: cada dólar más en el barril es ingreso directo"),
                (-1, "consumo y transporte", ["TERPEL", "UBER", "F", "EXITO", "WMT"], "el combustible más caro sube sus costos y le quita plata al consumidor"),
                (-1, "tecnológicas y bolsa en general", ["CSPX", "EQQQ"], "petróleo caro alimenta la inflación y aleja las bajas de tasas")]),
@@ -76,7 +77,9 @@ TEMAS: list[dict[str, Any]] = [
       patrones=[r"medio oriente", r"middle east", r"estrecho de ormuz", r"\bhormuz\b", r"\bguerra\b(?! comercial| arancelaria| de precios)", r"(?<!trade )\bwar\b", r"misil\w*", r"missile\w*",
                 r"\b(iran|israel|huties|houthi\w*|hezbola|hezbollah|hamas|rusia|russia|ucrania|ukraine|taiwan|arabia saudita|saudi)\b.*\b(ataque\w*|attack\w*|guerra|war|conflict\w*|misil\w*|sancion\w*|sanctions?|tension\w*|tregua|ceasefire|cese al fuego|paz|peace|nuclear|bombarde\w+)\b",
                 r"\b(ataque\w*|attack\w*|sancion\w*|sanctions?|tregua|ceasefire|cese al fuego)\b.*\b(iran|israel|huties|houthi\w*|rusia|russia|ucrania|ukraine|arabia saudita|saudi|riad|riyadh)\b"],
-      arriba=r"(ataque\w*|ataca\w*|bombarde\w+|misil\w*|escalada|escala|intercambio de fuego|exchange fire|strike\w*|attack\w*|retalia\w+|represalia\w*|invasion|invade\w*|sancion\w*|sanctions?|tension\w* (sube|aumenta|crece)|temor)",
+      solo_propias=True,
+      arriba=r"(ataque\w*|ataca\w*|bombarde\w+|misil\w*|escalada|escala|escalat\w+|intercambio de fuego|exchange fire|strike\w*|attack\w*|retalia\w+|represalia\w*|invasion|invade\w*|sancion\w*|sanctions?|"
+             r"tension\w* (sube|aumenta|crece)|temor|fighting|combates?|enfrentamientos?|explosion\w*|intercept\w*)",
       abajo=r"(tregua|cese al fuego|ceasefire|acuerdo de paz|peace (deal|talks)|truce|desescalada|de-escalat\w+|close to over|cerca de terminar|no atacara|discusiones productivas|productive (talks|discussions)|pactaron frenar)",
       efectos=[(+1, "petróleo y gas", ["ECOPETROL", "PBR", "CNEC"], "el miedo a que falte crudo sube su precio"),
                (+1, "oro (refugio)", ["MINEROS"], "con miedo, la plata busca refugio en el oro"),
@@ -105,6 +108,17 @@ TEMAS: list[dict[str, Any]] = [
       efectos=[(+1, "consumo y entretenimiento", ["WMT", "AMZN", "KO", "DIS"], "viven de lo que gastan los hogares"),
                (+1, "pagos", ["V", "MA"], "cobran por cada compra con tarjeta"),
                (+1, "autos", ["F", "TSLA"], "un carro es la compra que primero se aplaza cuando el consumidor se asusta")]),
+    T(clave="aranceles_colombia", nombre="Aranceles de EE. UU. a Colombia", factor="colombia", que="los aranceles de EE. UU. a Colombia", signo_factor=-1,
+      patrones=[r"(arancel\w*|tariffs?|guerra comercial|trade war).*\bcolombi\w+", r"\bcolombi\w+.*(arancel\w*|tariffs?|guerra comercial|trade war)"],
+      arriba=r"(impon\w+|impuso|nuevos? arancel\w*|sube\w* (los )?arancel\w*|new tariffs?|raises? tariffs?|amenaza\w*|threat\w*|sancion\w*|castig\w+)",
+      abajo=r"(suspend\w+|retira\w*|quita\w*|elimina\w*|levanta\w*|rebaja\w*|acuerdo comercial|trade deal|pausa|exenci\w+|cut\w* tariffs?|lift\w*|remove\w*|drop\w* tariffs?|strike deal)",
+      efectos=[(-1, "bolsa colombiana en general", ["GRUPOARGOS", "PFGRUPOARG", "GRUPOSURA", "PFSURA", "CEMARGOS", "ISA", "GEB", "CELSIA"],
+                "EE. UU. es el primer socio comercial de Colombia: un choque de aranceles le quita confianza al país y saca plata de su bolsa"),
+               (-1, "bancos colombianos", ["PFBCOLOM", "BCOLOMBIA", "BOGOTA", "PFAVAL", "AVAL", "CORFICOLCF"],
+                "menos comercio y menos confianza significan menos crédito y más riesgo de que los clientes no paguen"),
+               (-1, "petróleo colombiano", ["ECOPETROL"], "EE. UU. es uno de los grandes compradores de su crudo: un arancel le quita precio o clientes"),
+               (+1, "acciones globales en trii", ["NUCO", "NVDA", "MSFT", "AAPL", "AMZN", "GOOGL", "META", "TSLA"],
+                "con el choque el peso se debilita y el dólar sube: en pesos estas acciones valen más (y al revés si se quitan los aranceles)")]),
     T(clave="aranceles", nombre="Aranceles y comercio", factor="sp500", que="las barreras al comercio", signo_factor=-1,
       patrones=[r"\barancel\w*\b", r"\btariffs?\b", r"guerra comercial", r"trade war", r"\bdumping\b"],
       arriba=r"(impon\w+|impuso|nuevos? arancel\w*|sube\w* arancel\w*|new tariffs?|raises? tariffs?|amenaza\w*|threat\w*)",
@@ -211,6 +225,9 @@ EXPLICA = {
                    "paga sus créditos y gasta con tarjeta, ganan también las redes de pago.",
     "consumo_eeuu": "El gasto de los hogares es dos tercios de la economía de Estados Unidos. Los datos de ventas y de confianza anticipan cómo les irá a las empresas de consumo, "
                     "a las de pagos con tarjeta y a los fabricantes de carros, que es lo primero que se aplaza cuando el consumidor se asusta.",
+    "aranceles_colombia": "Estados Unidos compra cerca de una cuarta parte de lo que Colombia vende afuera. Cuando amenaza con aranceles, el mercado castiga a la bolsa "
+                          "colombiana y el peso se debilita; cuando los quita, pasa lo contrario: suben la confianza y las acciones locales, y el dólar baja. Ojo con lo "
+                          "segundo si tienes acciones globales en trii: con el dólar más barato valen menos en pesos aunque en Nueva York no se muevan.",
     "aranceles": "Un arancel es un impuesto a lo que entra de afuera: le sube el costo a quien fabrica con piezas importadas o vende mercancía traída de otros países. Un acuerdo que "
                  "los baja o los suspende hace lo contrario. El efecto depende de qué tan en serio se tome el anuncio: muchos se negocian o se aplazan.",
     "energia_colombia": "La energía de Colombia depende de las lluvias: cuando los embalses bajan, hay que prender plantas térmicas más caras y crece el riesgo de racionamiento. Para ISA, "
@@ -282,7 +299,7 @@ def direccion(titulo_norm: str, tema: dict[str, Any]) -> int:
     """+1 si el titular dice que el tema SUBE (o se agrava), −1 si baja (o se calma), 0 si no lo dice. Cada tema puede traer sus propias palabras."""
     a = len(re.findall(tema.get("arriba") or SUBE, titulo_norm))
     b = len(re.findall(tema.get("abajo") or BAJA, titulo_norm)) * int(tema.get("peso_abajo", 1))      # un titular de tregua casi siempre nombra también la guerra
-    if tema.get("arriba") and not a and not b:                                         # temas con palabras propias: de respaldo, las genéricas
+    if tema.get("arriba") and not a and not b and not tema.get("solo_propias"):        # temas con palabras propias: de respaldo, las genéricas
         a, b = len(re.findall(SUBE, titulo_norm)), len(re.findall(BAJA, titulo_norm))
     return (a > b) - (b > a)
 
@@ -291,13 +308,40 @@ OTRO_PAIS = (r"\b(cuba|venezuela|mexic\w+|argentin\w+|peru|chile|ecuador|bolivia
              r"reino unido|japon|estados unidos|ee\.? ?uu\.?|milei|sheinbaum|fujimori|maduro)\b")
 
 
+PRECIO_MANDA = ("petroleo", "oro", "dolar")
+OPINION = re.compile(r"(\bprediction\b|could be worth|\bundervalued\b|\bovervalued\b|looks (cheap|reasonable|expensive|pricey)|still looks cheap|cheapest valuation|premium valuation|"
+                     r"\bmoats?\b|metrics to watch|to watch this week|what to look for|earnings (report )?preview|q\d earnings preview|key watch items|key facts|facts to know|stock movers|"
+                     r"chart watchers|live levels|range-bound|key level|breakouts?\b|how to earn|\bcramer\b|monster long|\breiterates\b|inner circle|\baward\b|report now available|"
+                     r"whitepaper|journey|commit \$|a month from|downside is left|may be cashing|one quiet|^forget the|bigger problem|in spotlight|^stocktwits|^odd lots|\(video\)|"
+                     r"survived the|too much\?|worth more than|increasing your market risk|resets with|exit from|biggest bet|calls for|wants ai|warn about|\bhype\b|"
+                     r"vende [\d.,]+ dolares en acciones|sells \$?[\d.,]+ (in|of|worth of) (stock|shares)|if you can only own|i.d split|our ai|may soar|nets \d+ ticks|cycle outlook|"
+                     r"support confluence|tight range|should you (really )?buy|too late to invest|next stock split|someone just spent|a-shiver|seekin|squeeze setup|has to break|"
+                     r"turning point|is stuck|post-peak|comparative analysis|is it worth|good or bad investment|what matters for|reacts? to|here.?s the key|stock (looks|may be)|"
+                     r"grows like a rocket|can the ai giant|still go higher|what comes next|on ai in science|cuanto vale|a lo largo del mundo|alrededor del mundo|guino)")
+
+
+def es_opinion(titulo: str) -> bool:
+    """Columnas, previas, consejos de inversión y análisis técnico: no traen un HECHO nuevo que mueva la acción. Un titular en inglés en forma de pregunta
+    también lo es ("Should you buy…?"). En español no: los medios colombianos titulan noticias reales con preguntas ("¿De cuánto será el incremento…?")."""
+    t = N.norm(titulo)
+    if OPINION.search(t):
+        return True
+    return "?" in t and "¿" not in titulo
+
+
 def temas_de(titulo: str) -> list[tuple[dict[str, Any], int]]:
     """Temas de mercado que toca el titular, cada uno con su dirección. Máximo dos (el titular más cargado no debe volverse una lista de todo)."""
     t = N.norm(titulo)
     ajeno = bool(re.search(OTRO_PAIS, t)) and not re.search(r"\bcolombia\w*\b", t)      # "Cuba enfrenta su crisis energética" no es un tema de Colombia
     hallados = [(tema, sum(1 for p in tema["patrones"] if re.search(p, t))) for tema in TEMAS if not (ajeno and tema["clave"].endswith("_colombia"))]
-    hallados = sorted([h for h in hallados if h[1]], key=lambda h: -h[1])[:2]
-    return [(tema, direccion(t, tema)) for tema, _ in hallados]
+    hallados = [h for h in hallados if h[1]]
+    if any(h[0]["clave"] == "aranceles_colombia" for h in hallados):                    # aranceles a Colombia: el tema general (Ford, Apple…) no aplica
+        hallados = [h for h in hallados if h[0]["clave"] != "aranceles"]
+    hallados = sorted(hallados, key=lambda h: -h[1])[:2]
+    con_dir = [(tema, direccion(t, tema)) for tema, _ in hallados]
+    # Lo que el titular dice del PRECIO (el petróleo cae, el oro sube) es un hecho y manda sobre lo que se espera de la tensión: "Oil lower despite Middle East
+    # escalation" le pega a Ecopetrol para mal, aunque la escalada por sí sola la empujaría para arriba. Va primero, así sus acciones toman ese signo.
+    return sorted(con_dir, key=lambda p: 0 if (p[0]["clave"] in PRECIO_MANDA and p[1] != 0) else 1)
 
 
 def globales_de(titulo: str) -> list[str]:
@@ -319,7 +363,7 @@ def tono(titulo: str) -> int:
 def analizar(item: N.Item, permitidas: set[str] | None = None) -> dict[str, Any] | None:
     """Lo que la noticia significa para las acciones: {tipo, temas, direccion, sectores[{nombre, signo, tickers, porque}], beneficiadas, afectadas, expuestas}.
     None si la noticia no toca ningún tema de mercado ni a una empresa global. `permitidas` = acciones del concurso (las demás no se nombran)."""
-    if RUIDO.search(N.norm(item.titulo)):
+    if RUIDO.search(N.norm(item.titulo)) or es_opinion(item.titulo):
         return None
     ok = (lambda xs: [x for x in xs if permitidas is None or x in permitidas])          # noqa: E731
     empresas = ok(globales_de(item.titulo))

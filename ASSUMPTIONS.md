@@ -171,3 +171,12 @@
      predicción: mide cuánta atención merece, no cuánto va a subir. El análisis por acción (`servicio.analisis_breve`, hasta 3: las que tiene, las que se negocian
      bien, la primera beneficiada y afectada) usa el motivo del sector y, sólo si existe una relación medida firme y dato de hoy, el número ("suele moverse X por cada 1%").
      Las noticias de empresa usan su nivel ya existente: alto → muy importante, medio → importante. En cada ronda se envían primero las más importantes.
+136. **Cuatro errores de clasificación vistos en los avisos del 9 al 13-oct-2026, corregidos.** (1) Noticias de empresa: "bajo" sin tilde casi siempre es
+     preposición o adjetivo ("bajo nueva dirección", "de bajo riesgo"), así que sólo cuenta como "bajó" si no lo sigue una palabra de ese tipo; "bajo/menor/poco
+     riesgo", "segura", "atractiva" y "defensiva" suman a favor, y "riesgo" ya no resta cuando va después de bajo/menor/poco. (2) Tema nuevo `aranceles_colombia`:
+     los aranceles de EE. UU. a Colombia le pegan a la bolsa colombiana, a los bancos y a Ecopetrol, y por el dólar a las globales en trii (al revés si se quitan);
+     cuando aparece, el tema general de aranceles (Ford, Apple…) no se usa. (3) Lo que el titular dice del PRECIO (petróleo, oro, dólar) va primero y manda sobre la
+     tensión geopolítica ("Oil lower despite escalation" → Ecopetrol afectada); la tensión sólo toma dirección de sus propias palabras (combates, ataques,
+     tregua), no de "drop"/"rise" que se refieren a otra cosa. Se reconocen más verbos de "oil". (4) `mercado.es_opinion`: columnas, previas de resultados,
+     análisis técnico, "¿deberías comprar…?", ventas mínimas de directivos, premios y videos no se avisan. Las preguntas cuentan como opinión sólo en inglés: en español
+     los medios titulan noticias reales con preguntas. Sobre los 311 avisos del fin de semana, el filtro deja 224; no se pierde ningún hecho que mueva una acción.

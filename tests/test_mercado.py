@@ -484,3 +484,68 @@ def test_si_el_tema_baja_el_analisis_no_explica_al_reves():
     t = F.plano(F.msg_noticia_mercado(a, dict(resumen="", importancia=MK.importancia(a, a["item"].titulo, 1.2, 1, set()), analisis=[x]), AHORA))
     assert f"🟢 {x['ticker']} — a favor, porque el dólar frente al peso va a la baja. Cuando sube le pesa (" in t and "ahora pasa lo contrario." in t
     assert "a favor: " not in t
+
+
+
+# =============================== errores reales del 9 al 13 de octubre de 2026 ===============================
+def test_bajo_riesgo_es_bueno_y_bajo_no_siempre_es_el_verbo():
+    from src import analisis_noticia as AN
+    assert AN.puntos("ISA: es una inversión sólida y de bajo riesgo en medio de la transición energética")[0] > 0
+    assert AN.puntos("Ecopetrol fortalece plan de eficiencia operativa bajo nueva lideranza ejecutiva")[0] > 0
+    assert AN.puntos("La acción de ISA bajó 3% tras el anuncio")[0] < 0                          # el verbo sigue contando
+    assert AN.puntos("Advierten riesgo de racionamiento para Celsia")[0] < 0                      # el riesgo de verdad sigue siendo malo
+
+
+def test_aranceles_de_eeuu_a_colombia_hablan_de_acciones_colombianas():
+    a = MK.analizar(item("Donald Trump abrió la puerta a retirar aranceles a productos colombianos"), TODAS)
+    assert a["temas"] == ["aranceles_colombia"] and a["direccion"] == -1
+    assert {"ECOPETROL", "GRUPOARGOS"} <= set(a["beneficiadas"]) and "NUCO" in a["afectadas"]       # se van los aranceles: sube Colombia, el dólar baja
+    assert not {"F", "GE"} & set(a["beneficiadas"] + a["afectadas"])                              # no es el tema de Ford o General Electric
+    b = MK.analizar(item("Trump amenaza con imponer aranceles de 25% a Colombia"), TODAS)
+    assert b["direccion"] == 1 and "ECOPETROL" in b["afectadas"] and "NUCO" in b["beneficiadas"]
+    c = MK.analizar(item("Trump impone nuevos aranceles a China"), TODAS)
+    assert c["temas"] == ["aranceles"]                                                             # los de otros países siguen con el tema general
+
+
+@pytest.mark.parametrize("titulo, eco", [
+    ("Oil Lower Despite Middle East Escalation", "afectadas"),                                    # el precio cae: a Ecopetrol le pega para mal
+    ("Oil edges higher as Hormuz risks persist", "beneficiadas"),
+    ("Saudis Say New Missiles Intercepted After Deadly Airport Attacks", "beneficiadas"),          # sólo tensión: el miedo sube el crudo
+])
+def test_lo_que_hace_el_precio_del_petroleo_manda_sobre_la_tension(titulo, eco):
+    a = MK.analizar(item(titulo), TODAS)
+    assert "ECOPETROL" in a[eco], (titulo, a["beneficiadas"], a["afectadas"])
+
+
+def test_un_titular_de_combates_no_se_lee_como_tregua():
+    a = MK.analizar(item("Gold Holds Drop as Middle East Fighting Stokes Inflation Fears"), TODAS)
+    assert "MINEROS" in a["afectadas"] and "ECOPETROL" in a["beneficiadas"] and "NUCO" in a["afectadas"]
+
+
+@pytest.mark.parametrize("titulo", [
+    "Wells Fargo, Bank of America, Domino’s, Johnson & Johnson, Inflation Data, and More to Watch This Week",
+    "Nu Holdings (NU) Stock Looks Reasonable Following Fresh Brazil Tax Concerns", "Is Walt Disney (DIS) a Good or Bad Investment at Today’s Price?",
+    "Citigroup (C) Q3 Earnings Report Preview: What To Look For", "Protiviti Achieves 2026-2027 Microsoft AI Business Solutions Inner Circle Award",
+    "Prediction: Alphabet Stock Could Be Worth $700 by 2030", "Tesla Chart Watchers Eye $400-Mark as Key Level For Breakout", "Tesla range-bound at $380 with weak trend: Live levels",
+    "How To Earn $500 A Month From Citigroup Stock Ahead Of Q3 Earnings", "Jim Cramer Calls Mark Zuckerberg's Meta a ‘Monster Long’ as Muse AI Retention Proves ‘Almost as Good as ChatGPT’",
+    "Frances Arnold, directora de Alphabet, vende 28.257 dólares en acciones", "Evercore ISI reiterates Meta stock Outperform rating on AI models",
+    "Johnson & Johnson (JNJ) Stock May Be 28% Undervalued As TREMFYA Data Impresses", "Nvidia (NVDA) Stock May Be 27% Undervalued Despite Record Highs",
+    "These 2 AI Stocks Have Stumbled. Now They May Soar Nearly 75%, According to Wall Street.", "AMD Vs. Nvidia: If You Can Only Own One to Finish 2026, It’s This One",
+    "Taiwan Semiconductor Stock Hits a New All-Time: Is it Too Late to Invest?", "Gold Daily: The Squeeze Setup Is There, but $4,200–$4,225 Still Has to Break",
+    "Crude Oil WTI stuck in tight range near $91: Live levels", "Does Tesla (TSLA) Gain More From Megachargers Or Tokenized Stock Trading?",
+    "Ford Motor Company (F) Sees a More Significant Dip Than Broader Market: Some Facts to Know", "Stocktwits M&A Watch: Viatris-Pacira Deal, Coca-Cola’s Costa Coffee Sale",
+    "The 3 Most Important Metrics to Watch for Nu Holdings. And No, It's Not Customer Numbers.", "¿Cuanto vale el IPhone Duo alrededor del mundo?",
+])
+def test_las_columnas_de_opinion_ya_no_se_avisan(titulo):
+    assert MK.analizar(item(titulo), TODAS) is None, titulo
+
+
+@pytest.mark.parametrize("titulo", [
+    "Tesla Faces US Probe Over Claim Robotaxis Speed in School Zones", "Apple cuts iPhone 18 Pro orders as AI raises the bill",
+    "MIT sues Amazon over cloud security patent violations", "Tesla China Electric Vehicle Sales Jump 5% in September as European Rebound Continues",
+    "¿Por qué sube hoy la acción de Meta Platforms?", "Amazon Negotiates $7 Billion Deal to Acquire AI Startup Decart",
+    "¿Ronda de despidos en OpenAI tras alertas de seguridad sobre la IA? Hay tres denuncias",
+    "Petróleo supera los US$105 mientras los futuros de Wall Street suben en la sesión asiática", "Bolsas asiáticas caen tras el desplome del Nasdaq por temores sobre el gasto en IA",
+])
+def test_las_noticias_de_hechos_siguen_saliendo(titulo):
+    assert MK.analizar(item(titulo), TODAS) is not None, titulo

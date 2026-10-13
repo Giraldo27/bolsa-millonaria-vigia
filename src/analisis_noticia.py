@@ -34,16 +34,19 @@ POSITIVAS: list[tuple[str, float, str]] = [
     (r"\b(recuper(a|o|acion)|optimis\w+|exitos[oa]s?|solid[oa]s?|robust[oa]s?)\b", 1.0, "recuperación o solidez"), (r"\b(culmin(a|o|an)|complet(a|o|an)|termin(a|o|an)) (con exito|la campana|el proyecto)", 0.5, "completa un proyecto"),
     (r"\b(lidera|lider en|reconocimiento|premi[oa])\b", 0.5, "liderazgo o reconocimiento"), (r"\b(lanz(a|o|an)|estrena|presenta nuev)", 0.5, "lanzamiento"),
     (r"\b(ahorr(a|o|os)|eficiencia|reduc(e|ira|io) costos)\b", 1.0, "ahorro o eficiencia"), (r"\b(beneficia|favorece|oportunidad)\b", 0.5, "le favorece"),
+    (r"\b(bajo|menor|poco|reduce\w*|mitiga\w*) riesgo|\bsegur[oa]s?\b|\batractiv[oa]s?\b|\bdefensiv[oa]s?\b", 1.0, "bajo riesgo o atractiva"),
 ]
+# "bajo" sin tilde casi siempre es preposición o adjetivo ("bajo la presidencia de", "bajo nueva dirección", "de bajo riesgo"), no el verbo "bajó"
+NO_ES_VERBO = r"(?!\s+(el|la|los|las|lo|su|sus|un|una|nuev\w+|riesgo|costo\w*|control|perfil|presion|cero|techo|tierra|llave|amenaza|lupa|sospecha|condiciones|esquema|modalidad|investigacion|liderazgo|lideranza|direccion|nivel|consumo|impacto|crecimiento|rendimiento|precio)\b)"
 NEGATIVAS: list[tuple[str, float, str]] = [
     (r"\b(sancion\w*|multa\w*|pliego de cargos)\b", 2.0, "sanción o multa"), (r"\b(fraude|corrupcion|escandalo|soborno|lavado)\b", 2.0, "escándalo"),
     (r"\b(atentado|derrame|accidente|incendio|explosion|ciberataque|voladura)\b", 2.0, "accidente o ataque"), (r"\b(quiebra|insolvencia|reorganizacion|liquidacion|crisis)\b", 2.0, "crisis"),
     (r"\b(desplom\w+|derrumb\w+|se hunde|colaps\w+)\b", 2.0, "desplome"), (r"(rebaja|baja|recorta) (la |su )?(calificacion|perspectiva|recomendacion|precio objetivo)|perspectiva negativa|infraponderar|degrad\w+", 2.0, "peor calificación o recomendación"),
-    (r"\b(ca(e|yo|yeron|en)|baj(a|o|an|aron)|disminuy\w+|reduj\w+|retroced\w+|se contra(e|jo))\b", 1.5, "cae o baja"), (r"\b(perdidas?|pierde|perdio|perdieron)\b", 1.5, "pérdidas"),
+    (r"\b(ca(e|yo|yeron|en)|baj(a|an|aron)|bajo" + NO_ES_VERBO + r"|disminuy\w+|reduj\w+|retroced\w+|se contra(e|jo))\b", 1.5, "cae o baja"), (r"\b(perdidas?|pierde|perdio|perdieron)\b", 1.5, "pérdidas"),
     (r"\b(investig\w+|imput\w+|allan\w+|captur\w+)\b", 1.5, "investigación"), (r"\bdemanda(n|ron|do|da)? (contra|a |por )|\bdemandas?\b", 1.5, "demanda"),
     (r"\b(huelga|paro|bloqueos?|protestas?|toma de)\b", 1.5, "paro o protesta"), (r"\b(suspend\w+|cancel\w+|retras\w+|aplaz\w+|fren(a|o|an)|paraliz\w+|posterg\w+)\b", 1.5, "suspende o retrasa"),
     (r"\b(recort(a|o|an|ara|es?)|despid\w+|cierr(a|e) (de |sus )?(planta|tienda|mina|oficina|campo)s?)\b", 1.5, "recortes o cierres"), (r"\bembarg\w+|intervencion|toma de posesion", 1.5, "embargo o intervención"),
-    (r"\b(riesgos?|alerta\w*|advierte\w*|preocup\w+|incertidumbre|amenaza\w*|temor\w*)\b", 1.0, "riesgo o alerta"), (r"\b(critic\w+|cuestion\w+|polemica|rechaz\w+|denunci\w+|pelea|choque|tension\w*|conflicto)\b", 1.0, "críticas o conflicto"),
+    (r"(?<!bajo )(?<!menor )(?<!poco )\b(riesgos?|alerta\w*|advierte\w*|preocup\w+|incertidumbre|amenaza\w*|temor\w*)\b", 1.0, "riesgo o alerta"), (r"\b(critic\w+|cuestion\w+|polemica|rechaz\w+|denunci\w+|pelea|choque|tension\w*|conflicto)\b", 1.0, "críticas o conflicto"),
     (r"\b(renunci\w+|destitu\w+|sale (el|la) presidente|salida del presidente)\b", 1.0, "salida de directivos"), (r"\b(endeud\w+|sobreendeud\w+|mas deuda|sube (su |la )?deuda|deficit)\b", 1.0, "más deuda"),
     (r"\b(emision de acciones|aumento de capital|dilu\w+)\b", 1.0, "emisión de acciones"), (r"\b(nuevo impuesto|sobretasa|gravamen|mas impuestos|expropi\w+|control de precios)\b", 1.5, "impuestos o regulación en contra"),
     (r"\b(incumpl\w+|impago|mora|no pagara|sin dividendo)\b", 1.5, "incumplimiento"), (r"\b(menor(es)?|menos|debil\w*|flojo|dificil\w*)\b", 0.5, "menor o débil"),
