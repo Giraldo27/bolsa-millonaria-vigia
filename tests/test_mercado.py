@@ -391,3 +391,96 @@ def test_el_vigia_de_mercado_tambien_usa_los_titulares_que_ya_leyo_el_de_empresa
     assert a["item"].fuente == "Portafolio" and a["temas"] == ["energia_colombia"]
     assert MK.ronda(lec, mem, AHORA, CFG, extra=extra)[0] == []                             # ya avisada
     assert len(CFG["noticias_mercado"]["google"]["consultas"]) >= 5 and "apagón" in CFG["noticias_mercado"]["google"]["consultas"][0]
+
+
+# =============================== qué tan importante es la noticia ===============================
+def _a(titulo):
+    it = item(titulo)
+    return dict(MK.analizar(it, TODAS), item=it)
+
+
+def test_la_importancia_sale_del_titular_del_mercado_de_los_medios_y_de_lo_que_tienes():
+    fuerte = _a("Petróleo se dispara más de 5% y supera los US$105 por temor a una mayor escalada en Medio Oriente")
+    alta = MK.importancia(fuerte, fuerte["item"].titulo, z_factor=2.6, n_medios=3, tenidos=set())
+    assert alta["nivel"] == "alto" and "MUY IMPORTANTE" in alta["titulo"] and "ALTA" in alta["etiqueta"]
+    assert any("2,6 veces lo normal" in x for x in alta["motivos"]) and any("3 medios" in x for x in alta["motivos"])
+    media = MK.importancia(fuerte, fuerte["item"].titulo, z_factor=0.3, n_medios=1, tenidos=set())
+    assert media["nivel"] == "medio" and media["titulo"] == "⚠️ NOTICIA IMPORTANTE"                                       # titular fuerte y con dirección, pero el mercado aún no se mueve
+    floja = _a("La OPEP se reúne el jueves para definir su producción de petróleo")
+    baja = MK.importancia(floja, floja["item"].titulo, z_factor=0.2, n_medios=1, tenidos=set())
+    assert baja["nivel"] == "bajo" and baja["titulo"] == "📰 NOTICIA DE MERCADO"                                           # informativa: el aviso de siempre
+    mia = MK.importancia(fuerte, fuerte["item"].titulo, z_factor=0.3, n_medios=1, tenidos={"NUCO"})
+    assert mia["puntos"] == media["puntos"] + 1 and mia["motivos"][0] == "le pega a NUCO, que tienes"
+    # sin efecto directo (no dice hacia dónde ni a quién) nunca llega a "muy importante" por el solo ruido de los medios
+    sin_dir = dict(floja, direccion=0, beneficiadas=[], afectadas=[])
+    assert MK.importancia(sin_dir, "Crisis: la OPEP anuncia reunión de emergencia", z_factor=2.5, n_medios=3)["nivel"] == "medio"
+    assert MK.importancia(fuerte, fuerte["item"].titulo, 2.6, 3, set(), dict(importancia=dict(alto=99, medio=98)))["nivel"] == "bajo"   # los cortes salen de config
+
+
+def test_cuenta_los_medios_que_traen_la_misma_noticia():
+    uno = item("Petróleo Brent se dispara 5% por la tensión en Medio Oriente", fuente="Bloomberg Línea")
+    otros = [uno, item("El petróleo Brent se dispara 5% por tensión en Medio Oriente", fuente="Valora Analitik"),
+             item("Brent se dispara por la tensión en Medio Oriente y sube 5%", fuente="La República"),
+             item("El petróleo Brent se dispara 5% por tensión en Medio Oriente", fuente="Valora Analitik"),              # el mismo medio no cuenta dos veces
+             item("Dólar en Colombia cae y la TRM rompe los $3.200", fuente="Portafolio")]
+    assert MK.medios_que_la_traen(uno, otros) == 3
+
+
+def test_el_aviso_importante_se_nota_y_explica_por_que_le_pega_a_cada_accion():
+    a = _a("Petróleo se dispara más de 5% y supera los US$105 por temor a una mayor escalada en Medio Oriente")
+    imp = MK.importancia(a, a["item"].titulo, z_factor=2.6, n_medios=3, tenidos={"NUCO"})
+    analisis = [dict(ticker="NUCO", signo=-1, porque="El combustible caro encarece el transporte y le quita plata al consumo", tengo=True, medido=None),
+                dict(ticker="ECOPETROL", signo=1, porque="Venden crudo: cada dólar más en el barril es ingreso directo", tengo=False,
+                     medido=dict(por_punto=0.004, hoy=0.016, factor="el petróleo (Brent)"))]
+    t = F.plano(F.msg_noticia_mercado(a, dict(resumen="", tenidos={"NUCO"}, importancia=imp, analisis=analisis), AHORA))
+    assert t.startswith("🚨🚨🚨 NOTICIA MUY IMPORTANTE 🚨🚨🚨") and "NOTICIA DE MERCADO" not in t
+    for esperado in ("📶 Importancia: 🔴🔴🔴 ALTA — le pega a NUCO, que tienes;", "🧠 Análisis: a quién le pega y por qué",
+                     "🔴 NUCO (la tienes) — en contra: el combustible caro encarece el transporte",
+                     "🟢 ECOPETROL — a favor: venden crudo: cada dólar más en el barril es ingreso directo.",
+                     "Medido: suele moverse +0,4% por cada 1% de el petróleo (Brent); con el movimiento de hoy serían cerca de +1,6%.", "SE BENEFICIAN", "SE AFECTAN"):
+        assert esperado in t, esperado
+    assert t.index("Análisis: a quién") < t.index("SE BENEFICIAN")
+    sin_jerga(t)
+    medio = F.plano(F.msg_noticia_mercado(a, dict(resumen="", importancia=MK.importancia(a, a["item"].titulo, 0.2, 1, set()), analisis=analisis[1:]), AHORA))
+    assert medio.startswith("⚠️ NOTICIA IMPORTANTE") and "Importancia: 🟠🟠⚪ MEDIA" in medio and "🧠 Análisis" in medio
+    b_ = _a("La OPEP se reúne el jueves para definir su producción de petróleo")
+    bajo = F.plano(F.msg_noticia_mercado(b_, dict(resumen="", importancia=MK.importancia(b_, b_["item"].titulo, 0.1, 1, set()), analisis=[]), AHORA))
+    assert bajo.startswith("📰 NOTICIA DE MERCADO") and "Importancia: ⚪ baja (informativa)" in bajo and "🧠" not in bajo
+
+
+def test_el_analisis_breve_pone_primero_lo_que_tienes_y_usa_lo_medido(monkeypatch):
+    from src import macro as M
+    a = _a("Petróleo se dispara más de 5% y supera los US$105 por temor a una mayor escalada en Medio Oriente")
+    tengo = next(t for s in a["sectores"] if s["signo"] < 0 for t in s["tickers"])
+    sube = a["beneficiadas"][0]
+    monkeypatch.setattr(LQ, "medir", lambda f, t, cfg: dict(nivel=LQ.BUENA if t == sube else LQ.MALA))
+    monkeypatch.setattr(S, "_tickers_macro", lambda ctx, est: [sube, tengo])
+    monkeypatch.setattr(M, "sensibilidades", lambda f, cfg, ts: {"brent": {sube: dict(beta=0.4)}})
+    ctx = SimpleNamespace(f=None, cfg=CFG)
+    est = SimpleNamespace(tenidos=lambda: {tengo})
+    factor = dict(clave="brent", nombre="el petróleo (Brent)", cambio=0.05, en_puntos=False)
+    out = S.analisis_breve(ctx, a, est, factor)
+    assert [x["ticker"] for x in out[:2]] == [tengo, sube] and out[0]["tengo"] and out[0]["signo"] == -1 and out[0]["medido"] is None
+    assert out[1]["signo"] == 1 and abs(out[1]["medido"]["hoy"] - 0.02) < 1e-9 and abs(out[1]["medido"]["por_punto"] - 0.004) < 1e-9
+    assert all(not x["porque"].endswith(".") and x["porque"] for x in out) and len(out) <= 3
+    assert all(x["medido"] is None for x in S.analisis_breve(ctx, a, est, None))                                           # sin dato de hoy no inventa un número
+    assert not any(x["al_reves"] for x in out)                                                                             # el petróleo sube: los motivos se leen tal cual
+    baja = _a("Dólar en Colombia cae y la TRM baja de los $3.700")
+    assert all(x["al_reves"] and x["que"] == "el dólar frente al peso" for x in S.analisis_breve(ctx, baja, est, None))
+
+
+def test_las_noticias_de_empresa_tambien_muestran_su_grado_de_importancia():
+    import inspect
+    fuente = inspect.getsource(F.msg_noticia_bvc) + inspect.getsource(F.msg_noticia_relevante)
+    assert "NOTICIA MUY IMPORTANTE" in fuente and "🔴🔴🔴 ALTA" in fuente and "NOTICIA IMPORTANTE" in fuente and "🟠🟠⚪ MEDIA" in fuente
+
+
+def test_si_el_tema_baja_el_analisis_no_explica_al_reves():
+    """Los motivos están escritos para cuando el tema sube. Con el dólar cayendo no puede decir «a favor: sus costos suben»."""
+    a = _a("Dólar en Colombia cae y la TRM baja de los $3.700")
+    assert a["direccion"] < 0
+    gana = next(s for s in a["sectores"] if s["signo"] > 0)
+    x = dict(ticker=gana["tickers"][0], signo=1, porque=gana["porque"], tengo=False, medido=None, al_reves=True, que=gana["que"])
+    t = F.plano(F.msg_noticia_mercado(a, dict(resumen="", importancia=MK.importancia(a, a["item"].titulo, 1.2, 1, set()), analisis=[x]), AHORA))
+    assert f"🟢 {x['ticker']} — a favor, porque el dólar frente al peso va a la baja. Cuando sube le pesa (" in t and "ahora pasa lo contrario." in t
+    assert "a favor: " not in t

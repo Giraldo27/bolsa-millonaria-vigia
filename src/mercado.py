@@ -503,6 +503,73 @@ def recortar(texto: str, n: int = 320) -> str:
     return (t[:corte + 1] if corte > n * 0.5 else t[:n].rsplit(" ", 1)[0] + "…").strip()
 
 
+# ------------------------------------------------------------------ ¿qué tan importante es?
+FUERTE = (r"\b(se dispara\w*|disparo|se desploma\w*|desplomo|se hunde\w*|hundio|colapsa\w*|crash|historic\w+|record|maximo historico|minimo historico|guerra|ataque\w*|bombarde\w+|invasion|"
+          r"emergencia|crisis|default|quiebra|intervencion|interviene|expropia\w*|estado de excepcion|shock|panico|sorpres\w+|inesperad\w+|"
+          r"soar\w*|plunge\w*|surge\w*|tumble\w*|slump\w*|rout|selloff|war|attack\w*|strike\w*|record high|record low|all-time|emergency|shock\w*|surprise\w*|unexpected\w*)\b")
+MODERADA = (r"\b(sube|suben|subio|cae|caen|cayo|baja|bajan|alza|caida|repunt\w+|retroced\w+|avanz\w+|aceler\w+|recort\w+|advierte|advirtio|alerta\w*|riesgo\w*|tension\w*|"
+            r"rise\w*|rose|fall\w*|fell|drop\w*|gain\w*|jump\w*|slide\w*|climb\w*|warn\w*|risk\w*|cut\w*|hike\w*)\b")
+OFICIAL = (r"\b(decreto|decreta|aprueba|aprobo|aprobaron|sanciona|firma|firmo|anuncia|anuncio|decide|decidio|fija|fijo|sube las tasas|baja las tasas|recorta las tasas|mantiene las tasas|"
+           r"dato de inflacion|\bipc\b|\bcpi\b|\bpib\b|resultados electorales|gana las elecciones|primera vuelta|segunda vuelta|"
+           r"approves?|signs?|announces?|decides?|raises rates|cuts rates|holds rates|election results?)\b")
+NIVELES = {"alto": ("🚨🚨🚨 NOTICIA MUY IMPORTANTE 🚨🚨🚨", "🔴🔴🔴 ALTA"), "medio": ("⚠️ NOTICIA IMPORTANTE", "🟠🟠⚪ MEDIA"), "bajo": ("📰 NOTICIA DE MERCADO", "⚪ baja (informativa)")}
+
+
+def importancia(a: dict[str, Any], titulo: str, z_factor: float | None = None, n_medios: int = 1, tenidos: set[str] | None = None, m: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Qué tan importante es la noticia para el mercado, de 'bajo' (informativa) a 'alto' (muy importante), con los motivos en palabras.
+    Puntos: el tono del titular (2 si habla de un salto, una crisis o un ataque; 1 si de una subida o caída normal) + 1 si dice hacia dónde va
+    + lo que YA se está moviendo el mercado de ese tema (2 si es 2 veces lo normal o más; 1 si es 1 vez) + cuántos medios la traen (2 si son 3 o más; 1 si son 2)
+    + 1 si es una decisión o un dato oficial + 1 si le pega a una acción que tienes. Con 5 o más es muy importante; con 3 o 4, importante."""
+    t = N.norm(titulo)
+    cortes = (m or {}).get("importancia") or {}
+    puntos, motivos = 0, []
+    if re.search(FUERTE, t):
+        puntos += 2
+        motivos.append("el titular habla de un movimiento o un hecho fuerte")
+    elif re.search(MODERADA, t):
+        puntos += 1
+    directa = bool(a.get("direccion")) and bool(a.get("beneficiadas") or a.get("afectadas"))
+    if directa:
+        puntos += 1
+        motivos.append("dice hacia dónde empuja")
+    if z_factor is not None and abs(z_factor) >= 2:
+        puntos += 2
+        motivos.append(f"el mercado de ese tema ya se mueve {abs(z_factor):.1f} veces lo normal".replace(".", ","))
+    elif z_factor is not None and abs(z_factor) >= 1:
+        puntos += 1
+        motivos.append("el mercado de ese tema ya se está moviendo")
+    if n_medios >= 3:
+        puntos += 2
+        motivos.append(f"la traen {n_medios} medios")
+    elif n_medios == 2:
+        puntos += 1
+        motivos.append("la traen 2 medios")
+    if re.search(OFICIAL, t):
+        puntos += 1
+        motivos.append("es una decisión o un dato oficial")
+    mias = [x for x in (a.get("beneficiadas", []) + a.get("afectadas", []) + a.get("expuestas", [])) if x in (tenidos or set())]
+    if mias:
+        puntos += 1
+        motivos.insert(0, "le pega a " + ", ".join(mias[:3]) + ", que tienes")
+    nivel = "alto" if puntos >= cortes.get("alto", 5) else ("medio" if puntos >= cortes.get("medio", 3) else "bajo")
+    if nivel != "bajo" and not directa and not mias:
+        nivel = "medio" if nivel == "alto" else "bajo"                                 # sin efecto directo (no dice a quién ni hacia dónde) baja un escalón
+    return dict(nivel=nivel, puntos=puntos, motivos=motivos, titulo=NIVELES[nivel][0], etiqueta=NIVELES[nivel][1])
+
+
+def medios_que_la_traen(item: N.Item, items: list[N.Item]) -> int:
+    """Cuántos medios distintos traen esta misma noticia entre los titulares leídos (parecido de palabras o misma cifra)."""
+    f = N.firma(item.titulo)
+    medios = {item.fuente}
+    for o in items:
+        if o.fuente in medios:
+            continue
+        g = N.firma(o.titulo)
+        if N.parecido(f["pal"], g["pal"]) >= 0.4 or (set(f["cif"]) & set(g["cif"]) and N.parecido(f["pal"], g["pal"]) >= 0.2):
+            medios.add(o.fuente)
+    return len(medios)
+
+
 # ------------------------------------------------------------------ ¿ya se avisó esta historia?
 def _nombres_de(empresas: list[str]) -> set[str]:
     """Las palabras con que se nombra a esas empresas (para no tomar 'Nvidia' como la pista de que dos noticias de Nvidia son la misma)."""
@@ -599,6 +666,7 @@ def ronda(lector: Any, mem: Any, ahora: dt.datetime, cfg: dict[str, Any], locale
             continue                                                                   # la misma historia ya se avisó: no se repite
         d["historias"].append(dict(ts=marca, sujetos=sorted(sujetos), dir=a["direccion"], pal=f["pal"], cif=f["cif"], ent=f["ent"]))
         a["item"], a["titulo_es"] = it, titulo_es
+        a["n_medios"] = medios_que_la_traen(it, items)
         out.append(a)
         d["ultimas"].append(dict(ts=marca, titulo=it.titulo[:220], fuente=it.fuente, url=it.url, nombres=a["nombres"], empresas=a["empresas"], direccion=a["direccion"],
                                  beneficiadas=a["beneficiadas"][:8], afectadas=a["afectadas"][:8], expuestas=a["expuestas"][:8]))

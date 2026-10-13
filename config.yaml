@@ -446,6 +446,7 @@ noticias_mercado:
   horizonte_sesiones: 5                     # el análisis es de corto plazo: lo que puede moverse cada acción en UNA semana de bolsa
   traducir: true                            # los titulares y resúmenes en inglés se pasan al español antes de avisar (si el traductor falla, salen en inglés y se dice)
   max_acciones: 10                          # acciones por aviso con su movimiento esperado y su liquidez
+  importancia: {alto: 5, medio: 3}          # puntos para "muy importante" e "importante" (ver mercado.importancia); por debajo es informativa
   superfinanciera: true
   sfc_cada_rondas: 2
   rss:                                      # cada_rondas: cada cuántas rondas se consulta (los canales pesados, menos seguido)

@@ -684,12 +684,30 @@ def msg_noticia_mercado(a: dict[str, Any], extras: dict[str, Any], ahora: dt.dat
     marca = lambda t: b(esc(t)) + (" (la tienes)" if t in tenidos else "")              # noqa: E731
     titulo = extras.get("titulo") or it_.titulo
     pie = f"{esc(it_.fuente)} · {hace(it_.ts.isoformat(), ahora_utc)}" + (" · en inglés (no pude traducirla)" if extras.get("en_ingles") else "")
-    L = [f"📰 {b('NOTICIA DE MERCADO')}  {it(f'{fecha(ahora)} · {ahora:%H:%M}')}", f"🏷 {b(esc(tema))}{palabra}", "",
-         b(esc(titulo[:300])), it(pie) + (f" · {enlace(it_.url)}" if it_.url else "")]
+    imp = extras.get("importancia") or dict(nivel="bajo", titulo="📰 NOTICIA DE MERCADO", etiqueta="", motivos=[])
+    L = [f"{b(imp['titulo'])}  {it(f'{fecha(ahora)} · {ahora:%H:%M}')}", f"🏷 {b(esc(tema))}{palabra}"]
+    if imp.get("etiqueta"):
+        porque_imp = ("; ".join(imp["motivos"][:3])) if imp["nivel"] != "bajo" and imp["motivos"] else ""
+        L.append(f"📶 {b('Importancia')}: {imp['etiqueta']}" + (f" — {esc(porque_imp)}." if porque_imp else ""))
+    L += ["", b(esc(titulo[:300])), it(pie) + (f" · {enlace(it_.url)}" if it_.url else "")]
     if extras.get("resumen"):
         L += ["", f"📝 {b('Qué pasó')}", esc(extras["resumen"])]
     if extras.get("factor_ahora"):
         L += ["", f"📡 {b('Cómo va el mercado')}", esc(extras["factor_ahora"][:1].upper() + extras["factor_ahora"][1:]) + "."]
+    if extras.get("analisis"):                                                        # noticias importantes: por qué le pega a cada acción, para bien o para mal
+        L += ["", f"🧠 {b('Análisis: a quién le pega y por qué')}"]
+        for x in extras["analisis"]:
+            cabeza = f"{'🟢' if x['signo'] > 0 else '🔴'} {b(esc(x['ticker']))}{' (la tienes)' if x['tengo'] else ''} — {b('a favor' if x['signo'] > 0 else 'en contra')}"
+            motivo = esc(x["porque"][:1].lower() + x["porque"][1:])
+            if x.get("al_reves"):                                                      # el motivo describe lo que pasa cuando el tema sube: aquí baja
+                linea = (f"{cabeza}, porque {esc(x.get('que') or 'el tema')} va a la baja. Cuando sube le {'pesa' if x['signo'] > 0 else 'ayuda'} ({motivo}); "
+                         "ahora pasa lo contrario.")
+            else:
+                linea = f"{cabeza}: {motivo}."
+            if x.get("medido"):
+                md = x["medido"]
+                linea += (f" {it('Medido: suele moverse ' + pct(md['por_punto'], 1, True) + ' por cada 1% de ' + esc(md['factor']) + '; con el movimiento de hoy serían cerca de ' + pct(md['hoy'], 1, True) + '.')}")
+            L.append(linea)
     if a.get("explica"):
         L += ["", f"🔎 {b('Por qué importa')}", esc(a["explica"])]
 
@@ -756,7 +774,8 @@ def msg_noticia_relevante(s: Any, ahora: dt.datetime, cfg: dict[str, Any], afect
     if getattr(s, "iliquida", False):
         rebote.append(f"⚠️ {b(esc(s.ticker) + ' se negocia poco en trii')}: te aviso para que no te pierdas el movimiento, pero entrar es fácil y salir no. "
                       "Si la compras, que sea poco y con orden límite.")
-    return "\n".join([f"📰 {b(s.emisor + ' (' + s.ticker + ')')} · {esc(ETIQUETA[s.cat])}{tengo}", f"«{esc(n0.titulo[:260])}»",
+    grado = "⚠️ " + b("NOTICIA IMPORTANTE") + "\n📶 " + b("Importancia") + ": 🟠🟠⚪ MEDIA\n" if getattr(s, "nivel", "") == "medio" else ""
+    return "\n".join([f"{grado}📰 {b(s.emisor + ' (' + s.ticker + ')')} · {esc(ETIQUETA[s.cat])}{tengo}", f"«{esc(n0.titulo[:260])}»",
                       it(f"{', '.join(esc(x) for x in s.fuentes[:2])} · {hace(n0.ts.isoformat(), ahora_utc)}"), *enlace_resumen(n0), *analisis_txt(s), _impacto_txt(s),
                       *bloque_afectadas(afectadas), *rebote, _movio_txt(s.rec.get("pulso"), C.mercado_abierto(ahora, cfg)),
                       it("Noticia informativa: por sí sola no es motivo para comprar ni vender.")])
@@ -811,7 +830,7 @@ def msg_noticia_bvc(s: Any, ahora: dt.datetime, cfg: dict[str, Any], sugerencia:
     rec, n0 = s.rec, s.items[0]
     ahora_utc = ahora.astimezone(dt.timezone.utc)
     fuentes = ", ".join(esc(x) for x in s.fuentes[:3])
-    L = [f"🚨 {b('Noticia de alto impacto: ' + s.emisor)}  {it(f'{fecha(ahora)} {ahora:%H:%M}')}",
+    L = [f"🚨🚨🚨 {b('NOTICIA MUY IMPORTANTE')} 🚨🚨🚨", f"📶 {b('Importancia')}: 🔴🔴🔴 ALTA", f"🚨 {b('Noticia de alto impacto: ' + s.emisor)}  {it(f'{fecha(ahora)} {ahora:%H:%M}')}",
          f"📰 «{esc(n0.titulo[:300])}»", it(f"{fuentes} · {hace(n0.ts.isoformat(), ahora_utc)}"), *enlace_resumen(n0),
          f"{'📈' if s.sentido > 0 else '📉'} {b('Tipo')}: {esc(ETIQUETA[s.cat])}", *analisis_txt(s), _impacto_txt(s),
          *bloque_afectadas(afectadas), _precio_txt(rec.get("pulso"), C.mercado_abierto(ahora, cfg)), ""]

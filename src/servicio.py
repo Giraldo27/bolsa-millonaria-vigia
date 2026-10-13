@@ -1137,14 +1137,18 @@ def extras_mercado(ctx: Contexto, a: dict[str, Any], lector: Any, est: Estado) -
     if resumen and resumen[-1] not in ".!?…":
         resumen += "…"
     out: dict[str, Any] = dict(resumen=resumen, titulo=titulo, en_ingles=en_ingles, tenidos=est.tenidos(), sesiones=m["horizonte_sesiones"], sigma={}, liquidez={}, factor_ahora=None)
+    factor = None
     if a.get("factor"):
         try:
             from . import macro as M
-            x = next((x for x in M.tablero(ctx.f, ctx.cfg, ctx.ahora) if x["clave"] == a["factor"]), None)
-            if x:
-                out["factor_ahora"] = F._mov_factor(x)
+            factor = next((x for x in M.tablero(ctx.f, ctx.cfg, ctx.ahora) if x["clave"] == a["factor"]), None)
+            if factor:
+                out["factor_ahora"] = F._mov_factor(factor)
         except Exception:                                                              # noqa: BLE001
-            pass
+            factor = None
+    de_hoy = bool(factor and factor.get("cuando", "hoy") == "hoy")
+    out["importancia"] = MK.importancia(a, titulo, factor["z"] if (de_hoy and factor.get("z") is not None) else None, int(a.get("n_medios", 1)), est.tenidos(), m)
+    out["analisis"] = analisis_breve(ctx, a, est, factor if de_hoy else None) if out["importancia"]["nivel"] != "bajo" else []
     for t in (a["beneficiadas"] + a["afectadas"] + a["expuestas"])[: m["max_acciones"]]:
         try:
             d = ctx.f.diario(t, 80)
@@ -1160,6 +1164,44 @@ def extras_mercado(ctx: Contexto, a: dict[str, Any], lector: Any, est: Estado) -
     return out
 
 
+def analisis_breve(ctx: Contexto, a: dict[str, Any], est: Estado, factor: dict[str, Any] | None, n: int = 3) -> list[dict[str, Any]]:
+    """Por qué la noticia le pega a cada acción, para bien o para mal, en una o dos frases: primero las que tienes, luego las que se negocian bien en trii y
+    luego la primera beneficiada y la primera afectada. Si el bot tiene MEDIDO cuánto se mueve esa acción con el factor del tema, lo añade con el número de hoy."""
+    from . import liquidez as LQ
+    sectores = [s for s in a["sectores"] if s["signo"] != 0]
+    por_accion = {t: s for s in sectores for t in s["tickers"]}
+    if not por_accion:
+        return []
+    tenidos = est.tenidos()
+    liquidas = []
+    for t in list(por_accion)[:12]:
+        try:
+            if LQ.medir(ctx.f, t, ctx.cfg)["nivel"] == LQ.BUENA:
+                liquidas.append(t)
+        except Exception:                                                              # noqa: BLE001
+            continue
+    orden = [t for t in por_accion if t in tenidos] + liquidas + a["beneficiadas"][:1] + a["afectadas"][:1]
+    elegidas = [t for t in dict.fromkeys(orden) if t in por_accion][:n]
+    sens: dict[str, Any] = {}
+    if factor:
+        try:
+            from . import macro as M
+            sens = M.sensibilidades(ctx.f, ctx.cfg, _tickers_macro(ctx, est)).get(factor["clave"], {})
+        except Exception:                                                              # noqa: BLE001
+            sens = {}
+    out = []
+    for t in elegidas:
+        s = por_accion[t]
+        medido = None
+        b = (sens.get(t) or {}).get("beta")
+        if b is not None and factor and not factor.get("en_puntos") and abs(b * factor["cambio"]) >= 0.001:
+            medido = dict(por_punto=b * 0.01, hoy=b * factor["cambio"], factor=factor["nombre"])
+        al_reves = bool(s.get("base")) and s["signo"] == -s["base"]                    # el motivo está escrito para cuando el tema SUBE: si hoy baja, hay que decirlo al revés
+        out.append(dict(ticker=t, signo=s["signo"], porque=s["porque"].split(". ")[0].rstrip("."), tengo=t in tenidos, medido=medido,
+                        al_reves=al_reves, que=s.get("que") or a.get("que") or "el tema"))
+    return out
+
+
 def tick_mercado(ctx: Contexto, lector: Any, mem: Any, extra: list[Any] | None = None) -> list[str]:
     """Una ronda del vigía de mercado (cada minuto): lee las fuentes y avisa cada noticia nueva de mercado con titular, enlace, resumen, acciones beneficiadas
     y afectadas, sectores con su porqué y el movimiento esperado a una semana."""
@@ -1172,10 +1214,13 @@ def tick_mercado(ctx: Contexto, lector: Any, mem: Any, extra: list[Any] | None =
     mensajes = []
     if nuevas:
         est = leer_estado(ctx)
+        listos = []
         for a in nuevas:
             if a["item"].origen == "google" and hasattr(getattr(lector, "base", None), "enlace_real"):
                 a["item"].url = lector.base.enlace_real(a["item"].url)                 # el enlace abre la nota, no la página intermedia de Google
-            m = F.msg_noticia_mercado(a, extras_mercado(ctx, a, lector, est), ctx.ahora)
+            ex = extras_mercado(ctx, a, lector, est)
+            listos.append(({"alto": 0, "medio": 1}.get(ex["importancia"]["nivel"], 2), F.msg_noticia_mercado(a, ex, ctx.ahora)))
+        for _, m in sorted(listos, key=lambda p: p[0]):                                # primero las más importantes
             mensajes.append(m)
             enviar_o_encolar(ctx, m, BOTONES_MERCADO)
     if not ctx.dry and getattr(mem, "sucia", False):
